@@ -8,7 +8,7 @@ import {
     type Mock,
     vi,
 } from "vitest";
-import { PlaudClient } from "@/lib/plaud/client";
+import { PlaudClient } from "../lib/plaud/client";
 
 const originalFetch = global.fetch;
 
