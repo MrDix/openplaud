@@ -1,0 +1,209 @@
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from "vitest";
+import { PlaudClient } from "@/lib/plaud/client";
+
+const originalFetch = global.fetch;
+
+beforeAll(() => {
+    global.fetch = vi.fn() as typeof global.fetch;
+});
+
+afterAll(() => {
+    global.fetch = originalFetch;
+});
+
+describe("PlaudClient", () => {
+    let client: PlaudClient;
+    const mockBearerToken = "test-bearer-token";
+
+    beforeEach(() => {
+        client = new PlaudClient(mockBearerToken);
+        vi.clearAllMocks();
+    });
+
+    describe("constructor", () => {
+        it("should create client with bearer token", () => {
+            expect(client).toBeInstanceOf(PlaudClient);
+        });
+    });
+
+    describe("listDevices", () => {
+        it("should make authenticated request to device list endpoint", async () => {
+            const mockResponse = {
+                status: 0,
+                msg: "success",
+                data_devices: [
+                    {
+                        sn: "888317426694681884",
+                        name: "Test Device",
+                        model: "888",
+                        version_number: 131339,
+                    },
+                ],
+            };
+
+            (fetch as any).mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(mockResponse),
+            });
+
+            const result = await client.listDevices();
+
+            expect(fetch).toHaveBeenCalledWith(
+                "https://api.plaud.ai/device/list",
+                expect.objectContaining({
+                    headers: expect.objectContaining({
+                        Authorization: `Bearer ${mockBearerToken}`,
+                        "Content-Type": "application/json",
+                    }),
+                }),
+            );
+            expect(result).toEqual(mockResponse);
+        });
+    });
+
+    describe("getRecordings", () => {
+        it("should make request with default parameters", async () => {
+            const mockResponse = {
+                status: 0,
+                msg: "success",
+                data_file_total: 0,
+                data_file_list: [],
+            };
+
+            (fetch as any).mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(mockResponse),
+            });
+
+            const result = await client.getRecordings();
+
+            expect(fetch).toHaveBeenCalledWith(
+                "https://api.plaud.ai/file/simple/web?skip=0&limit=99999&is_trash=0&sort_by=edit_time&is_desc=true",
+                expect.any(Object),
+            );
+            expect(result).toEqual(mockResponse);
+        });
+
+        it("should make request with custom parameters", async () => {
+            const mockResponse = {
+                status: 0,
+                msg: "success",
+                data_file_total: 0,
+                data_file_list: [],
+            };
+
+            (fetch as any).mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(mockResponse),
+            });
+
+            await client.getRecordings(10, 50, 1, "create_time", false);
+
+            expect(fetch).toHaveBeenCalledWith(
+                "https://api.plaud.ai/file/simple/web?skip=10&limit=50&is_trash=1&sort_by=create_time&is_desc=false",
+                expect.any(Object),
+            );
+        });
+    });
+
+    describe("getTempUrl", () => {
+        it("should get temp URL for OPUS format by default", async () => {
+            const mockResponse = {
+                code: 0,
+                msg: "success",
+                data: {
+                    temp_url: "https://example.com/audio.wav",
+                    temp_url_opus: "https://example.com/audio.opus",
+                },
+            };
+
+            (fetch as any).mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(mockResponse),
+            });
+
+            const result = await client.getTempUrl("file-123");
+
+            expect(fetch).toHaveBeenCalledWith(
+                "https://api.plaud.ai/file/temp-url/file-123?is_opus=1",
+                expect.any(Object),
+            );
+            expect(result).toEqual(mockResponse);
+        });
+
+        it("should get temp URL for WAV format when specified", async () => {
+            const mockResponse = {
+                code: 0,
+                msg: "success",
+                data: {
+                    temp_url: "https://example.com/audio.wav",
+                },
+            };
+
+            (fetch as any).mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(mockResponse),
+            });
+
+            await client.getTempUrl("file-123", false);
+
+            expect(fetch).toHaveBeenCalledWith(
+                "https://api.plaud.ai/file/temp-url/file-123?is_opus=0",
+                expect.any(Object),
+            );
+        });
+    });
+
+    describe("testConnection", () => {
+        it("should return true when connection is successful", async () => {
+            (fetch as any).mockResolvedValueOnce({
+                ok: true,
+                json: () =>
+                    Promise.resolve({ code: 0, msg: "success", data: {} }),
+            });
+
+            const result = await client.testConnection();
+            expect(result).toBe(true);
+        });
+
+        it("should return false when connection fails", async () => {
+            (fetch as any).mockRejectedValueOnce(new Error("Network error"));
+
+            const result = await client.testConnection();
+            expect(result).toBe(false);
+        });
+    });
+
+    describe("error handling", () => {
+        it("should throw error when API returns error response", async () => {
+            const errorResponse = {
+                status: 400,
+                msg: "Invalid request",
+            };
+
+            (fetch as any).mockResolvedValueOnce({
+                ok: false,
+                statusText: "Bad Request",
+                json: () => Promise.resolve(errorResponse),
+            });
+
+            await expect(client.listDevices()).rejects.toThrow(
+                "Plaud API error: Invalid request",
+            );
+        });
+
+        it("should throw error when fetch fails", async () => {
+            (fetch as any).mockRejectedValueOnce(new Error("Network error"));
+
+            await expect(client.listDevices()).rejects.toThrow("Network error");
+        });
+    });
+});
