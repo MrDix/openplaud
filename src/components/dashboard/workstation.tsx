@@ -1,6 +1,6 @@
 "use client";
 
-import { Mic, RefreshCw, Settings } from "lucide-react";
+import { Mic, RefreshCw, Scissors, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -37,6 +37,7 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
         recordings.length > 0 ? recordings[0] : null,
     );
     const [isTranscribing, setIsTranscribing] = useState(false);
+    const [isSplitting, setIsSplitting] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [onboardingOpen, setOnboardingOpen] = useState(false);
     const [providers, setProviders] = useState<
@@ -174,6 +175,33 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
         }
     }, [currentRecording, router]);
 
+    const handleSplit = useCallback(async () => {
+        if (!currentRecording) return;
+
+        setIsSplitting(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${currentRecording.id}/split`,
+                { method: "POST" },
+            );
+
+            if (response.ok) {
+                const data = await response.json();
+                toast.success(
+                    `Recording split into ${data.segmentCount} segments`,
+                );
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to split recording");
+            }
+        } catch {
+            toast.error("Failed to split recording");
+        } finally {
+            setIsSplitting(false);
+        }
+    }, [currentRecording, router]);
+
     return (
         <>
             <div className="bg-background">
@@ -265,6 +293,19 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                             <div className="lg:col-span-2 space-y-6">
                                 {currentRecording ? (
                                     <>
+                                        <div className="flex justify-end">
+                                            <Button
+                                                onClick={handleSplit}
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={isSplitting}
+                                            >
+                                                <Scissors className="w-4 h-4 mr-2" />
+                                                {isSplitting
+                                                    ? "Splitting..."
+                                                    : "Split Recording"}
+                                            </Button>
+                                        </div>
                                         <RecordingPlayer
                                             recording={currentRecording}
                                             onEnded={() => {
