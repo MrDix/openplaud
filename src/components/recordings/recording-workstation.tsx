@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Scissors } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
@@ -27,6 +27,7 @@ export function RecordingWorkstation({
 }: RecordingWorkstationProps) {
     const router = useRouter();
     const [isTranscribing, setIsTranscribing] = useState(false);
+    const [isSplitting, setIsSplitting] = useState(false);
 
     const handleTranscribe = useCallback(async () => {
         setIsTranscribing(true);
@@ -52,6 +53,31 @@ export function RecordingWorkstation({
         }
     }, [recording.id, router]);
 
+    const handleSplit = useCallback(async () => {
+        setIsSplitting(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${recording.id}/split`,
+                { method: "POST" },
+            );
+
+            if (response.ok) {
+                const data = await response.json();
+                toast.success(
+                    `Recording split into ${data.segmentCount} segments`,
+                );
+                router.push("/dashboard");
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to split recording");
+            }
+        } catch {
+            toast.error("Failed to split recording");
+        } finally {
+            setIsSplitting(false);
+        }
+    }, [recording.id, router]);
+
     return (
         <div className="bg-background">
             <div className="container mx-auto px-4 py-6 max-w-4xl">
@@ -72,6 +98,14 @@ export function RecordingWorkstation({
                             {new Date(recording.startTime).toLocaleString()}
                         </p>
                     </div>
+                    <Button
+                        onClick={handleSplit}
+                        variant="outline"
+                        disabled={isSplitting}
+                    >
+                        <Scissors className="w-4 h-4 mr-2" />
+                        {isSplitting ? "Splitting..." : "Split Recording"}
+                    </Button>
                 </div>
 
                 {/* Content */}
