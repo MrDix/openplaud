@@ -1,15 +1,14 @@
 "use client";
 
-import { CloudUpload, Mic, Pencil, RefreshCw, Scissors, Settings, Trash2, VolumeX } from "lucide-react";
+import { Mic, RefreshCw, Scissors, Settings, Trash2, VolumeX } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { OnboardingDialog } from "@/components/onboarding-dialog";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { SyncStatus } from "@/components/sync-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import {
     requestNotificationPermission,
@@ -48,7 +47,6 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
     const [editTitleValue, setEditTitleValue] = useState("");
     const [isSavingTitle, setIsSavingTitle] = useState(false);
     const [isSyncingToPlaud, setIsSyncingToPlaud] = useState(false);
-    const titleInputRef = useRef<HTMLInputElement>(null);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [onboardingOpen, setOnboardingOpen] = useState(false);
     const [providers, setProviders] = useState<
@@ -480,73 +478,6 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                             <div className="lg:col-span-2 space-y-6">
                                 {currentRecording ? (
                                     <>
-                                        {/* Title row */}
-                                        <div className="flex items-center gap-2 min-w-0">
-                                            {isEditingTitle ? (
-                                                <Input
-                                                    ref={titleInputRef}
-                                                    value={editTitleValue}
-                                                    onChange={(e) =>
-                                                        setEditTitleValue(
-                                                            e.target.value,
-                                                        )
-                                                    }
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === "Enter")
-                                                            handleSaveTitle();
-                                                        if (e.key === "Escape")
-                                                            setIsEditingTitle(
-                                                                false,
-                                                            );
-                                                    }}
-                                                    onBlur={handleSaveTitle}
-                                                    disabled={isSavingTitle}
-                                                    className="font-semibold text-base flex-1"
-                                                    autoFocus
-                                                />
-                                            ) : (
-                                                <span className="font-semibold text-base truncate flex-1">
-                                                    {currentRecording.filename}
-                                                </span>
-                                            )}
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="shrink-0 h-8 w-8"
-                                                onClick={() => {
-                                                    setEditTitleValue(
-                                                        currentRecording.filename,
-                                                    );
-                                                    setIsEditingTitle(true);
-                                                }}
-                                                title="Edit title"
-                                            >
-                                                <Pencil className="w-3.5 h-3.5" />
-                                            </Button>
-                                            {!currentRecording.plaudFileId.startsWith(
-                                                "split-",
-                                            ) &&
-                                                !currentRecording.plaudFileId.startsWith(
-                                                    "silence-removed-",
-                                                ) &&
-                                                currentRecording.filenameModified && (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="shrink-0 h-8 w-8"
-                                                        onClick={
-                                                            handleSyncToPlaud
-                                                        }
-                                                        disabled={
-                                                            isSyncingToPlaud
-                                                        }
-                                                        title="Sync title to Plaud device"
-                                                    >
-                                                        <CloudUpload className="w-3.5 h-3.5" />
-                                                    </Button>
-                                                )}
-                                        </div>
-
                                         <div className="space-y-2">
                                             {splitConflict !== null && (
                                                 <div className="flex items-center justify-end gap-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
@@ -633,6 +564,22 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                         </div>
                                         <RecordingPlayer
                                             recording={currentRecording}
+                                            onEditTitle={() => {
+                                                setEditTitleValue(
+                                                    currentRecording.filename,
+                                                );
+                                                setIsEditingTitle(true);
+                                            }}
+                                            isEditingTitle={isEditingTitle}
+                                            editTitleValue={editTitleValue}
+                                            onEditTitleChange={setEditTitleValue}
+                                            onSaveTitle={handleSaveTitle}
+                                            onCancelEdit={() =>
+                                                setIsEditingTitle(false)
+                                            }
+                                            isSavingTitle={isSavingTitle}
+                                            onSyncToPlaud={handleSyncToPlaud}
+                                            isSyncingToPlaud={isSyncingToPlaud}
                                             onEnded={() => {
                                                 const currentIndex =
                                                     recordings.findIndex(
