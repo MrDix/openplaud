@@ -109,38 +109,75 @@ export async function POST(
         const estimatedDurationMs = Math.round(recording.duration * durationRatio);
 
         const baseFilename = recording.filename.replace(/\.[^.]+$/, "");
+        const silencedPlaudFileId = `silence-removed-${recording.plaudFileId}`;
 
-        const [newRecording] = await db
-            .insert(recordings)
-            .values({
-                userId: session.user.id,
-                deviceSn: recording.deviceSn,
-                plaudFileId: `silence-removed-${recording.plaudFileId}`,
-                filename: `${baseFilename} (Silence Removed)`,
-                duration: estimatedDurationMs,
-                startTime: recording.startTime,
-                endTime: new Date(
-                    recording.startTime.getTime() + estimatedDurationMs,
+        // Check if a silence-removed recording already exists for this source.
+        // If so, update it in place instead of inserting to avoid the unique
+        // constraint violation on plaud_file_id.
+        const [existing] = await db
+            .select({ id: recordings.id })
+            .from(recordings)
+            .where(
+                and(
+                    eq(recordings.userId, session.user.id),
+                    eq(recordings.plaudFileId, silencedPlaudFileId),
                 ),
-                filesize: outputBuffer.length,
-                fileMd5: md5,
-                storageType: recording.storageType,
-                storagePath: storageKey,
-                downloadedAt: new Date(),
-                plaudVersion: recording.plaudVersion,
-                timezone: recording.timezone,
-                zonemins: recording.zonemins,
-                scene: recording.scene,
-                isTrash: false,
-            })
-            .returning({ id: recordings.id });
+            )
+            .limit(1);
+
+        let resultId: string;
+
+        if (existing) {
+            await db
+                .update(recordings)
+                .set({
+                    filename: `${baseFilename} (Silence Removed)`,
+                    duration: estimatedDurationMs,
+                    endTime: new Date(
+                        recording.startTime.getTime() + estimatedDurationMs,
+                    ),
+                    filesize: outputBuffer.length,
+                    fileMd5: md5,
+                    storagePath: storageKey,
+                    downloadedAt: new Date(),
+                    updatedAt: new Date(),
+                })
+                .where(eq(recordings.id, existing.id));
+            resultId = existing.id;
+        } else {
+            const [newRecording] = await db
+                .insert(recordings)
+                .values({
+                    userId: session.user.id,
+                    deviceSn: recording.deviceSn,
+                    plaudFileId: silencedPlaudFileId,
+                    filename: `${baseFilename} (Silence Removed)`,
+                    duration: estimatedDurationMs,
+                    startTime: recording.startTime,
+                    endTime: new Date(
+                        recording.startTime.getTime() + estimatedDurationMs,
+                    ),
+                    filesize: outputBuffer.length,
+                    fileMd5: md5,
+                    storageType: recording.storageType,
+                    storagePath: storageKey,
+                    downloadedAt: new Date(),
+                    plaudVersion: recording.plaudVersion,
+                    timezone: recording.timezone,
+                    zonemins: recording.zonemins,
+                    scene: recording.scene,
+                    isTrash: false,
+                })
+                .returning({ id: recordings.id });
+            resultId = newRecording.id;
+        }
 
         const originalSizeMb = (audioBuffer.length / 1024 / 1024).toFixed(1);
         const newSizeMb = (outputBuffer.length / 1024 / 1024).toFixed(1);
 
         return NextResponse.json({
             success: true,
-            recordingId: newRecording.id,
+            recordingId: resultId,
             originalSizeMb,
             newSizeMb,
             reductionPercent: Math.round((1 - outputBuffer.length / audioBuffer.length) * 100),
