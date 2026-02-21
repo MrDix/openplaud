@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Scissors } from "lucide-react";
+import { ArrowLeft, Scissors, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -28,6 +28,7 @@ export function RecordingWorkstation({
     const router = useRouter();
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [isSplitting, setIsSplitting] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [splitSegmentMinutes, setSplitSegmentMinutes] = useState(60);
 
     useEffect(() => {
@@ -86,6 +87,27 @@ export function RecordingWorkstation({
         }
     }, [recording.id, router]);
 
+    const handleDelete = useCallback(async () => {
+        setIsDeleting(true);
+        try {
+            const response = await fetch(`/api/recordings/${recording.id}`, {
+                method: "DELETE",
+            });
+
+            if (response.ok) {
+                toast.success("Recording deleted");
+                router.push("/dashboard");
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to delete recording");
+            }
+        } catch {
+            toast.error("Failed to delete recording");
+        } finally {
+            setIsDeleting(false);
+        }
+    }, [recording.id, router]);
+
     return (
         <div className="bg-background">
             <div className="container mx-auto px-4 py-6 max-w-4xl">
@@ -114,6 +136,17 @@ export function RecordingWorkstation({
                         >
                             <Scissors className="w-4 h-4 mr-2" />
                             {isSplitting ? "Splitting..." : "Split Recording"}
+                        </Button>
+                    )}
+                    {recording.plaudFileId.startsWith("split-") && (
+                        <Button
+                            onClick={handleDelete}
+                            variant="outline"
+                            disabled={isDeleting}
+                            className="text-destructive hover:text-destructive"
+                        >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            {isDeleting ? "Deleting..." : "Delete Segment"}
                         </Button>
                     )}
                 </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Mic, RefreshCw, Scissors, Settings } from "lucide-react";
+import { Mic, RefreshCw, Scissors, Settings, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -38,6 +38,7 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
     );
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [isSplitting, setIsSplitting] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [onboardingOpen, setOnboardingOpen] = useState(false);
     const [providers, setProviders] = useState<
@@ -204,6 +205,30 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
         }
     }, [currentRecording, router]);
 
+    const handleDelete = useCallback(async () => {
+        if (!currentRecording) return;
+
+        setIsDeleting(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${currentRecording.id}`,
+                { method: "DELETE" },
+            );
+
+            if (response.ok) {
+                toast.success("Recording deleted");
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to delete recording");
+            }
+        } catch {
+            toast.error("Failed to delete recording");
+        } finally {
+            setIsDeleting(false);
+        }
+    }, [currentRecording, router]);
+
     return (
         <>
             <div className="bg-background">
@@ -295,20 +320,44 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                             <div className="lg:col-span-2 space-y-6">
                                 {currentRecording ? (
                                     <>
-                                        {currentRecording.duration >
-                                            splitSegmentMinutes * 60 * 1000 && (
-                                            <div className="flex justify-end">
-                                                <Button
-                                                    onClick={handleSplit}
-                                                    variant="outline"
-                                                    size="sm"
-                                                    disabled={isSplitting}
-                                                >
-                                                    <Scissors className="w-4 h-4 mr-2" />
-                                                    {isSplitting
-                                                        ? "Splitting..."
-                                                        : "Split Recording"}
-                                                </Button>
+                                        {(currentRecording.duration >
+                                            splitSegmentMinutes * 60 * 1000 ||
+                                            currentRecording.plaudFileId.startsWith(
+                                                "split-",
+                                            )) && (
+                                            <div className="flex justify-end gap-2">
+                                                {currentRecording.duration >
+                                                    splitSegmentMinutes *
+                                                        60 *
+                                                        1000 && (
+                                                    <Button
+                                                        onClick={handleSplit}
+                                                        variant="outline"
+                                                        size="sm"
+                                                        disabled={isSplitting}
+                                                    >
+                                                        <Scissors className="w-4 h-4 mr-2" />
+                                                        {isSplitting
+                                                            ? "Splitting..."
+                                                            : "Split Recording"}
+                                                    </Button>
+                                                )}
+                                                {currentRecording.plaudFileId.startsWith(
+                                                    "split-",
+                                                ) && (
+                                                    <Button
+                                                        onClick={handleDelete}
+                                                        variant="outline"
+                                                        size="sm"
+                                                        disabled={isDeleting}
+                                                        className="text-destructive hover:text-destructive"
+                                                    >
+                                                        <Trash2 className="w-4 h-4 mr-2" />
+                                                        {isDeleting
+                                                            ? "Deleting..."
+                                                            : "Delete Segment"}
+                                                    </Button>
+                                                )}
                                             </div>
                                         )}
                                         <RecordingPlayer
