@@ -61,6 +61,7 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
     const [notificationPrefs, setNotificationPrefs] = useState<{
         browserNotifications: boolean;
     } | null>(null);
+    const [splitSegmentMinutes, setSplitSegmentMinutes] = useState(60);
 
     const currentTranscription = currentRecording
         ? transcriptions.get(currentRecording.id)
@@ -79,6 +80,7 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                 setNotificationPrefs({
                     browserNotifications: data.browserNotifications ?? true,
                 });
+                setSplitSegmentMinutes(data.splitSegmentMinutes ?? 60);
             } catch {
                 // best-effort; ignore
             }
@@ -293,19 +295,22 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                             <div className="lg:col-span-2 space-y-6">
                                 {currentRecording ? (
                                     <>
-                                        <div className="flex justify-end">
-                                            <Button
-                                                onClick={handleSplit}
-                                                variant="outline"
-                                                size="sm"
-                                                disabled={isSplitting}
-                                            >
-                                                <Scissors className="w-4 h-4 mr-2" />
-                                                {isSplitting
-                                                    ? "Splitting..."
-                                                    : "Split Recording"}
-                                            </Button>
-                                        </div>
+                                        {currentRecording.duration >
+                                            splitSegmentMinutes * 60 * 1000 && (
+                                            <div className="flex justify-end">
+                                                <Button
+                                                    onClick={handleSplit}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={isSplitting}
+                                                >
+                                                    <Scissors className="w-4 h-4 mr-2" />
+                                                    {isSplitting
+                                                        ? "Splitting..."
+                                                        : "Split Recording"}
+                                                </Button>
+                                            </div>
+                                        )}
                                         <RecordingPlayer
                                             recording={currentRecording}
                                             onEnded={() => {

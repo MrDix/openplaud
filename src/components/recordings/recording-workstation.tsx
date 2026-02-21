@@ -2,7 +2,7 @@
 
 import { ArrowLeft, Scissors } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { RecordingPlayer } from "@/components/dashboard/recording-player";
 import { TranscriptionPanel } from "@/components/dashboard/transcription-panel";
@@ -28,6 +28,14 @@ export function RecordingWorkstation({
     const router = useRouter();
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [isSplitting, setIsSplitting] = useState(false);
+    const [splitSegmentMinutes, setSplitSegmentMinutes] = useState(60);
+
+    useEffect(() => {
+        fetch("/api/settings/user")
+            .then((res) => res.json())
+            .then((data) => setSplitSegmentMinutes(data.splitSegmentMinutes ?? 60))
+            .catch(() => {});
+    }, []);
 
     const handleTranscribe = useCallback(async () => {
         setIsTranscribing(true);
@@ -98,14 +106,16 @@ export function RecordingWorkstation({
                             {new Date(recording.startTime).toLocaleString()}
                         </p>
                     </div>
-                    <Button
-                        onClick={handleSplit}
-                        variant="outline"
-                        disabled={isSplitting}
-                    >
-                        <Scissors className="w-4 h-4 mr-2" />
-                        {isSplitting ? "Splitting..." : "Split Recording"}
-                    </Button>
+                    {recording.duration > splitSegmentMinutes * 60 * 1000 && (
+                        <Button
+                            onClick={handleSplit}
+                            variant="outline"
+                            disabled={isSplitting}
+                        >
+                            <Scissors className="w-4 h-4 mr-2" />
+                            {isSplitting ? "Splitting..." : "Split Recording"}
+                        </Button>
+                    )}
                 </div>
 
                 {/* Content */}
