@@ -38,10 +38,15 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
     );
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [isDeletingTranscription, setIsDeletingTranscription] = useState(false);
+    const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
     const [isSplitting, setIsSplitting] = useState(false);
     const [splitConflict, setSplitConflict] = useState<number | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [isRemovingSilence, setIsRemovingSilence] = useState(false);
+    const [isEditingTitle, setIsEditingTitle] = useState(false);
+    const [editTitleValue, setEditTitleValue] = useState("");
+    const [isSavingTitle, setIsSavingTitle] = useState(false);
+    const [isSyncingToPlaud, setIsSyncingToPlaud] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [onboardingOpen, setOnboardingOpen] = useState(false);
     const [providers, setProviders] = useState<
@@ -70,6 +75,15 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
     const currentTranscription = currentRecording
         ? transcriptions.get(currentRecording.id)
         : undefined;
+
+    // Keep currentRecording in sync with the recordings prop (updated after router.refresh())
+    useEffect(() => {
+        setCurrentRecording((prev) => {
+            if (!prev) return prev;
+            const updated = recordings.find((r) => r.id === prev.id);
+            return updated ?? prev;
+        });
+    }, [recordings]);
 
     useEffect(() => {
         getSyncSettings().then(setSyncSettings);
@@ -204,6 +218,84 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
             setIsDeletingTranscription(false);
         }
     }, [currentRecording, router]);
+
+    const handleGenerateTitle = useCallback(async () => {
+        if (!currentRecording) return;
+
+        setIsGeneratingTitle(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${currentRecording.id}/generate-title`,
+                { method: "POST" },
+            );
+
+            if (response.ok) {
+                const data = await response.json();
+                toast.success(`Title generated: "${data.title}"`);
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to generate title");
+            }
+        } catch {
+            toast.error("Failed to generate title");
+        } finally {
+            setIsGeneratingTitle(false);
+        }
+    }, [currentRecording, router]);
+
+    const handleSaveTitle = useCallback(async () => {
+        if (!currentRecording) return;
+        const trimmed = editTitleValue.trim();
+        if (!trimmed || trimmed === currentRecording.filename) {
+            setIsEditingTitle(false);
+            return;
+        }
+
+        setIsSavingTitle(true);
+        try {
+            const response = await fetch(`/api/recordings/${currentRecording.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename: trimmed }),
+            });
+
+            if (response.ok) {
+                setIsEditingTitle(false);
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to save title");
+            }
+        } catch {
+            toast.error("Failed to save title");
+        } finally {
+            setIsSavingTitle(false);
+        }
+    }, [currentRecording, editTitleValue, router]);
+
+    const handleSyncToPlaud = useCallback(async () => {
+        if (!currentRecording) return;
+
+        setIsSyncingToPlaud(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${currentRecording.id}/sync-title`,
+                { method: "POST" },
+            );
+
+            if (response.ok) {
+                toast.success("Title synced to Plaud");
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to sync title");
+            }
+        } catch {
+            toast.error("Failed to sync title");
+        } finally {
+            setIsSyncingToPlaud(false);
+        }
+    }, [currentRecording]);
 
     const runSplit = useCallback(
         async (force: boolean) => {
@@ -472,6 +564,22 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                         </div>
                                         <RecordingPlayer
                                             recording={currentRecording}
+                                            onEditTitle={() => {
+                                                setEditTitleValue(
+                                                    currentRecording.filename,
+                                                );
+                                                setIsEditingTitle(true);
+                                            }}
+                                            isEditingTitle={isEditingTitle}
+                                            editTitleValue={editTitleValue}
+                                            onEditTitleChange={setEditTitleValue}
+                                            onSaveTitle={handleSaveTitle}
+                                            onCancelEdit={() =>
+                                                setIsEditingTitle(false)
+                                            }
+                                            isSavingTitle={isSavingTitle}
+                                            onSyncToPlaud={handleSyncToPlaud}
+                                            isSyncingToPlaud={isSyncingToPlaud}
                                             onEnded={() => {
                                                 const currentIndex =
                                                     recordings.findIndex(
@@ -499,6 +607,8 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                             onTranscribe={handleTranscribe}
                                             isDeletingTranscription={isDeletingTranscription}
                                             onDeleteTranscription={handleDeleteTranscription}
+                                            isGeneratingTitle={isGeneratingTitle}
+                                            onGenerateTitle={handleGenerateTitle}
                                         />
                                     </>
                                 ) : (
