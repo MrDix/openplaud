@@ -240,7 +240,7 @@ export async function POST(
         const autoGenerateTitle = settings?.autoGenerateTitle ?? true;
         const syncTitleToPlaud = settings?.syncTitleToPlaud ?? false;
 
-        if (autoGenerateTitle && transcriptionText.trim()) {
+        if (autoGenerateTitle && transcriptionText.trim() && !recording.filenameModified) {
             try {
                 const generatedTitle = await generateTitleFromTranscription(
                     session.user.id,

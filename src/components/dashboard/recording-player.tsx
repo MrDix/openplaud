@@ -265,8 +265,7 @@ export function RecordingPlayer({
                             }
                             onKeyDown={(e) => {
                                 if (e.key === "Enter") {
-                                    cancelledRef.current = false;
-                                    onSaveTitle?.();
+                                    e.currentTarget.blur();
                                 }
                                 if (e.key === "Escape") {
                                     cancelledRef.current = true;

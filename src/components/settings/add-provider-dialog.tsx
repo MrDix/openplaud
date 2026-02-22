@@ -135,7 +135,12 @@ export function AddProviderDialog({
         if (isSpeaches && open) {
             fetchSpeachesModels(baseUrl || "http://localhost:8000/v1");
         }
-    }, [isSpeaches, open, fetchSpeachesModels]);
+        // fetchSpeachesModels is intentionally omitted from deps: it is a stable
+        // useCallback ref and including it would cause a re-fetch on every baseUrl
+        // keystroke. Model fetching on baseUrl changes is handled by the onBlur
+        // handler on the Base URL input.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isSpeaches, open]);
 
     const handleProviderChange = (value: string) => {
         setProvider(value);

@@ -89,6 +89,12 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
         });
     }, [recordings]);
 
+    // Reset title-editing state whenever the selected recording changes so a
+    // stale editing UI is never shown after switching recordings.
+    useEffect(() => {
+        setIsEditingTitle(false);
+    }, [currentRecording?.id]);
+
     useEffect(() => {
         getSyncSettings().then(setSyncSettings);
     }, []);

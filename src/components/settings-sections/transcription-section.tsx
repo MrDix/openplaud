@@ -63,7 +63,9 @@ export function TranscriptionSection() {
     // value is valid; the raw string is shown in the input while typing.
     const [splitSegmentMinutesInput, setSplitSegmentMinutesInput] = useState("60");
     const [silenceThresholdDb, setSilenceThresholdDb] = useState(-40);
+    const [silenceThresholdDbInput, setSilenceThresholdDbInput] = useState("-40");
     const [silenceDurationSeconds, setSilenceDurationSeconds] = useState(1.0);
+    const [silenceDurationSecondsInput, setSilenceDurationSecondsInput] = useState("1");
     const pendingChangesRef = useRef<Map<string, unknown>>(new Map());
     // Track the last-successfully-saved values for settings that use optimistic
     // updates, so rollback always reverts to what is actually persisted.
@@ -89,7 +91,9 @@ export function TranscriptionSection() {
                     setSplitSegmentMinutes(data.splitSegmentMinutes ?? 60);
                     setSplitSegmentMinutesInput(String(data.splitSegmentMinutes ?? 60));
                     setSilenceThresholdDb(data.silenceThresholdDb ?? -40);
+                    setSilenceThresholdDbInput(String(data.silenceThresholdDb ?? -40));
                     setSilenceDurationSeconds(data.silenceDurationSeconds ?? 1.0);
+                    setSilenceDurationSecondsInput(String(data.silenceDurationSeconds ?? 1.0));
                     savedSplitSegmentMinutesRef.current = data.splitSegmentMinutes ?? 60;
                     savedSilenceThresholdRef.current = data.silenceThresholdDb ?? -40;
                     savedSilenceDurationRef.current = data.silenceDurationSeconds ?? 1.0;
@@ -248,7 +252,9 @@ export function TranscriptionSection() {
             // Revert to the last-saved values (not the pre-optimistic-update
             // local state, which may itself be a previous unsaved value).
             setSilenceThresholdDb(savedSilenceThresholdRef.current);
+            setSilenceThresholdDbInput(String(savedSilenceThresholdRef.current));
             setSilenceDurationSeconds(savedSilenceDurationRef.current);
+            setSilenceDurationSecondsInput(String(savedSilenceDurationRef.current));
             toast.error("Failed to save settings. Changes reverted.");
         }
     };
@@ -493,17 +499,16 @@ export function TranscriptionSection() {
                         type="number"
                         min={-60}
                         max={-10}
-                        value={silenceThresholdDb}
+                        value={silenceThresholdDbInput}
                         onChange={(e) => {
-                            const val = parseInt(e.target.value, 10);
-                            if (!isNaN(val) && val >= -60 && val <= -10) {
-                                setSilenceThresholdDb(val);
-                            }
+                            setSilenceThresholdDbInput(e.target.value);
                         }}
                         onBlur={(e) => {
                             const val = parseInt(e.target.value, 10);
                             if (!isNaN(val) && val >= -60 && val <= -10) {
                                 handleSilenceSettingChange({ silenceThresholdDb: val });
+                            } else {
+                                setSilenceThresholdDbInput(String(silenceThresholdDb));
                             }
                         }}
                         disabled={isSavingSettings}
@@ -526,17 +531,16 @@ export function TranscriptionSection() {
                         min={0.5}
                         max={30}
                         step={0.5}
-                        value={silenceDurationSeconds}
+                        value={silenceDurationSecondsInput}
                         onChange={(e) => {
-                            const val = parseFloat(e.target.value);
-                            if (!isNaN(val) && val >= 0.5 && val <= 30) {
-                                setSilenceDurationSeconds(val);
-                            }
+                            setSilenceDurationSecondsInput(e.target.value);
                         }}
                         onBlur={(e) => {
                             const val = parseFloat(e.target.value);
                             if (!isNaN(val) && val >= 0.5 && val <= 30) {
                                 handleSilenceSettingChange({ silenceDurationSeconds: val });
+                            } else {
+                                setSilenceDurationSecondsInput(String(silenceDurationSeconds));
                             }
                         }}
                         disabled={isSavingSettings}

@@ -5,6 +5,7 @@ import { plaudConnections, plaudDevices } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { encrypt } from "@/lib/encryption";
 import { DEFAULT_PLAUD_API_BASE, PlaudClient } from "@/lib/plaud/client";
+import { ALLOWED_PLAUD_HOSTS } from "@/lib/plaud/constants";
 
 export async function POST(request: Request) {
     try {
@@ -29,7 +30,6 @@ export async function POST(request: Request) {
         }
 
         // Validate apiBase: must be a well-formed HTTPS URL on an allowed domain.
-        const ALLOWED_PLAUD_HOSTS = new Set(["api.plaud.ai", "api-euc1.plaud.ai"]);
         let apiBase = DEFAULT_PLAUD_API_BASE;
         if (rawApiBase != null) {
             let parsed: URL;
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
                     { status: 400 },
                 );
             }
-            apiBase = rawApiBase;
+            apiBase = parsed.origin;
         }
         const client = new PlaudClient(bearerToken, apiBase);
         const isValid = await client.testConnection();

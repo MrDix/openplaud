@@ -181,6 +181,7 @@ export async function POST(
                     ),
                     filesize: outputBuffer.length,
                     fileMd5: md5,
+                    storageType: recording.storageType,
                     storagePath: storageKey,
                     downloadedAt: new Date(),
                     updatedAt: new Date(),

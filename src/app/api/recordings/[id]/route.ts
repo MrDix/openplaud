@@ -109,7 +109,7 @@ export async function PATCH(
         await db
             .update(recordings)
             .set({ filename, filenameModified: true, updatedAt: new Date() })
-            .where(eq(recordings.id, id));
+            .where(and(eq(recordings.id, id), eq(recordings.userId, session.user.id)));
 
         return NextResponse.json({ success: true, filename });
     } catch (error) {
