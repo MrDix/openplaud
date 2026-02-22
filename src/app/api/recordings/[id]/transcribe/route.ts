@@ -187,8 +187,39 @@ export async function POST(
                 ? undefined
                 : ((transcription as VerboseTranscription).segments ?? undefined);
 
+        // Debug: log what the API returned before post-processing
+        const verboseSeg = (transcription as VerboseTranscription).segments;
+        if (verboseSeg && verboseSeg.length > 0) {
+            const lastSeg = verboseSeg[verboseSeg.length - 1] as {
+                text: string;
+                end?: number;
+                avg_logprob?: number;
+                compression_ratio?: number;
+                no_speech_prob?: number;
+            };
+            console.log("[transcribe] API response debug:", {
+                segmentCount: verboseSeg.length,
+                rawTextLength: rawText.length,
+                lastSegmentEnd: lastSeg.end,
+                lastSegmentText: lastSeg.text?.slice(0, 80),
+                lastSegmentAvgLogprob: lastSeg.avg_logprob,
+                lastSegmentCompressionRatio: lastSeg.compression_ratio,
+                lastSegmentNoSpeechProb: lastSeg.no_speech_prob,
+            });
+        } else {
+            console.log("[transcribe] API response debug:", {
+                hasSegments: false,
+                rawTextLength: rawText.length,
+            });
+        }
+
         // Filter out hallucination loops before saving
         const transcriptionText = postProcessTranscription(rawText, segments);
+        console.log("[transcribe] post-process result:", {
+            rawLength: rawText.length,
+            processedLength: transcriptionText.length,
+            trimmedChars: rawText.length - transcriptionText.length,
+        });
 
         const detectedLanguage =
             typeof transcription === "string"
