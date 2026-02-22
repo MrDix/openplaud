@@ -30,6 +30,18 @@ interface TranscriptionSegment {
     no_speech_prob?: number;
 }
 
+// Whisper reliably hallucinates one of these closing phrases when the audio
+// ends or fades out. Every phrase the model produces ends with one of these
+// patterns, making them safe to strip from the tail of any transcription.
+const CLOSING_HALLUCINATION_PATTERNS = [
+    /\bthank\s+you\b\.?\s*$/i,
+    /\bthanks?\s+for\s+(watching|listening|joining|your\s+time)\b/i,
+    /\bplease\s+(like\s+and\s+)?subscribe\b/i,
+    /\bsee\s+you\s+(next\s+time|later|soon)\b/i,
+    /\bgoodbye\b\.?\s*$/i,
+    /\bbye[-\s]*bye\b\.?\s*$/i,
+];
+
 // A compression_ratio this high reliably indicates a hallucination loop
 // (normal speech segments stay well below 3; looping segments jump to 5+).
 // Using a high threshold avoids false-positives on legitimately repetitive
@@ -51,17 +63,18 @@ function findLoopStartIndex(segments: TranscriptionSegment[]): number {
 }
 
 /**
- * Removes trailing hallucination segments using two passes.
+ * Removes trailing hallucination segments using three passes.
  *
  * Pass 1 – Mini-loop detection: scans the last few segments for a
  * consecutive pair with identical text. When found, everything from the
- * start of that duplicate run to the end is removed. This handles patterns
- * like " Oh Oh Oh Oh Thank you." where a short phrase loops and is followed
- * by a common closing phrase.
+ * start of that duplicate run to the end is removed.
  *
- * Pass 2 – Low-confidence sweep: walks backwards from the new end and
- * removes any remaining segments with very negative avg_logprob (< -1.5),
- * which indicates the model was highly uncertain about what it generated.
+ * Pass 2 – Low-confidence sweep: removes remaining tail segments with
+ * avg_logprob < -1.5 (model was highly uncertain).
+ *
+ * Pass 3 – Closing phrase detection: removes segments whose text ends
+ * with a known Whisper end-of-audio hallucination phrase ("Thank you",
+ * "Thanks for watching", etc.).
  */
 function removeTrailingHallucinations(
     segments: TranscriptionSegment[],
@@ -94,6 +107,17 @@ function removeTrailingHallucinations(
     while (end > 0) {
         const lp = segments[end - 1].avg_logprob ?? 0;
         if (lp < -1.5) {
+            end--;
+        } else {
+            break;
+        }
+    }
+
+    // Pass 3: remove segments whose text ends with a known Whisper
+    // end-of-audio hallucination phrase, regardless of logprob.
+    while (end > 0) {
+        const text = segments[end - 1].text.trim();
+        if (CLOSING_HALLUCINATION_PATTERNS.some((p) => p.test(text))) {
             end--;
         } else {
             break;
