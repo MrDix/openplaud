@@ -62,7 +62,7 @@ function removeTrailingNoSpeechSegments(
         const seg = segments[end - 1];
         const ns = seg.no_speech_prob ?? 0;
         const lp = seg.avg_logprob ?? 0;
-        if (ns > 0.6 && lp < -1.0) {
+        if (ns > 0.5 && lp < -0.8) {
             end--;
         } else {
             break;
