@@ -203,6 +203,14 @@ export async function POST(
             })
             .returning({ id: recordings.id });
 
+        // If setWhere prevented the update (plaudFileId conflict with another user),
+        // returning() is empty. Treat it as a conflict error.
+        if (!upserted) {
+            return NextResponse.json(
+                { error: "Recording ID conflict — try again" },
+                { status: 409 },
+            );
+        }
         const resultId = upserted.id;
 
         const originalSizeMb = (audioBuffer.length / 1024 / 1024).toFixed(1);

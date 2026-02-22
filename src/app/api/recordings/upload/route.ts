@@ -127,7 +127,10 @@ export async function POST(request: Request) {
         // Derive the content-type from the validated extension so that
         // files without a browser-provided MIME type (e.g. .wav, .flac) are
         // stored with the correct type instead of always defaulting to audio/mpeg.
-        const contentType = file.type || getAudioMimeType(storageKey);
+        // Always derive content type from the validated extension — never
+        // trust the user-supplied file.type, which could be set to text/html
+        // and cause a stored XSS if the file is ever served directly.
+        const contentType = getAudioMimeType(storageKey);
 
         const storage = await createUserStorageProvider(session.user.id);
         await storage.uploadFile(storageKey, buffer, contentType);

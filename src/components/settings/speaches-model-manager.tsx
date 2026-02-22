@@ -116,13 +116,22 @@ export function SpeachesModelManager({
         // Polling promise: resolves as soon as the model appears in the
         // installed list. This lets us clear the loading state immediately
         // even if the POST connection is still open.
-        const pollPromise = new Promise<void>((resolve) => {
+        const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5-minute hard limit
+        const pollPromise = new Promise<void>((resolve, reject) => {
+            const pollTimeout = setTimeout(() => {
+                if (pollIntervalRef.current) {
+                    clearInterval(pollIntervalRef.current);
+                    pollIntervalRef.current = null;
+                }
+                reject(new Error("Model install timed out after 5 minutes"));
+            }, POLL_TIMEOUT_MS);
             pollIntervalRef.current = setInterval(async () => {
                 const models = await fetchInstalledSilent();
                 setInstalledModels(models);
                 if (models.some((m) => m.id === modelId)) {
                     clearInterval(pollIntervalRef.current!);
                     pollIntervalRef.current = null;
+                    clearTimeout(pollTimeout);
                     resolve();
                 }
             }, 2500);

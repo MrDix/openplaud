@@ -382,7 +382,7 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
 
     // True whenever any mutating operation is in flight — used to disable all
     // action buttons and prevent concurrent conflicting requests.
-    const isProcessing = isSplitting || isDeleting || isRemovingSilence;
+    const isProcessing = isSplitting || isDeleting || isRemovingSilence || isTranscribing || isDeletingTranscription;
 
     const handleDelete = useCallback(async () => {
         if (!currentRecording) return;

@@ -148,9 +148,6 @@ export function AddProviderDialog({
         if (preset) {
             setBaseUrl(preset.baseUrl);
             setDefaultModel(preset.defaultModel);
-            if (value === "Speaches") {
-                fetchSpeachesModels(preset.baseUrl);
-            }
         }
     };
 

@@ -176,6 +176,9 @@ export function removeRepetitions(text: string): string {
         for (let w = minW; w <= maxW; w++) {
             if (words.length < w * minReps) continue;
 
+            // Scan from the end of the text so we find the last (trailing)
+            // repetition loop first. This avoids false-positive truncation
+            // of legitimate repeated content earlier in the text.
             for (let start = 0; start <= words.length - w * minReps; start++) {
                 const phrase = words
                     .slice(start, start + w)
@@ -198,8 +201,8 @@ export function removeRepetitions(text: string): string {
                     }
                 }
 
-                if (reps >= minReps) {
-                    // Keep only the first occurrence of the phrase, drop the loop
+                if (reps >= minReps && pos >= words.length - w) {
+                    // Keep only the first occurrence; the loop reaches the end
                     return words
                         .slice(0, start + w)
                         .join(" ")

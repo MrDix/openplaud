@@ -326,7 +326,7 @@ export function EditProviderDialog({
                                 onChange={(e) => setBaseUrl(e.target.value)}
                                 onBlur={(e) => {
                                     if (isSpeaches)
-                                        fetchSpeachesModels(e.target.value);
+                                        fetchSpeachesModels(e.target.value || "http://localhost:8000/v1");
                                 }}
                                 disabled={isLoading}
                                 className="font-mono text-sm"

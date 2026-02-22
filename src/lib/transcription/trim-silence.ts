@@ -64,7 +64,15 @@ export async function trimTrailingSilence(
             });
         });
 
-        return await fs.readFile(outputPath);
+        const outputBuffer = await fs.readFile(outputPath);
+        // Guard against ffmpeg producing an empty file (e.g. the entire
+        // recording is below the silence threshold — silenceremove strips
+        // everything and exits 0). Fall back to the original audio.
+        if (outputBuffer.length < 100) {
+            console.warn("[transcription] silence trim produced empty output, using original audio");
+            return audioBuffer;
+        }
+        return outputBuffer;
     } catch (err) {
         console.warn(
             "[transcription] silence trim failed, using original audio:",
