@@ -67,14 +67,11 @@ export function SpeachesModelManager({
 
     const fetchInstalled = async () => {
         setIsLoadingInstalled(true);
-        try {
-            const models = await fetchInstalledSilent();
-            setInstalledModels(models);
-        } catch {
-            toast.error("Failed to load installed models");
-        } finally {
-            setIsLoadingInstalled(false);
-        }
+        // fetchInstalledSilent always returns [] on error and never throws,
+        // so no catch block is needed here.
+        const models = await fetchInstalledSilent();
+        setInstalledModels(models);
+        setIsLoadingInstalled(false);
     };
 
     const fetchRegistry = async () => {
@@ -140,7 +137,10 @@ export function SpeachesModelManager({
         });
 
         try {
-            // Whichever signal arrives first unblocks the UI
+            // Whichever signal arrives first unblocks the UI.
+            // Suppress any later rejection from installPromise so it doesn't
+            // become an unhandled promise rejection when pollPromise wins first.
+            installPromise.catch(() => {});
             await Promise.race([pollPromise, installPromise]);
             toast.success(`Model installed: ${modelId}`);
             await fetchInstalled();

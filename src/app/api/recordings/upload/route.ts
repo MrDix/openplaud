@@ -74,12 +74,23 @@ export async function POST(request: Request) {
         }
 
         const formData = await request.formData();
-        const file = formData.get("file") as File | null;
+        const fileEntry = formData.get("file");
 
-        if (!file) {
+        if (!fileEntry || !(fileEntry instanceof File)) {
             return NextResponse.json(
                 { error: "No file provided" },
                 { status: 400 },
+            );
+        }
+
+        const file = fileEntry;
+
+        // Reject files larger than 500 MB
+        const MAX_FILE_SIZE = 500 * 1024 * 1024;
+        if (file.size > MAX_FILE_SIZE) {
+            return NextResponse.json(
+                { error: "File exceeds the 500 MB size limit" },
+                { status: 413 },
             );
         }
 

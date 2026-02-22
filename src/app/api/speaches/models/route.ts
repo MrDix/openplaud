@@ -1,11 +1,25 @@
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { db } from "@/db";
+import { apiCredentials } from "@/db/schema";
 import { auth } from "@/lib/auth";
 
 const DEFAULT_BASE_URL = "http://localhost:8000/v1";
 
-function getBaseUrl(request: Request): string {
-    const url = new URL(request.url);
-    return url.searchParams.get("baseUrl") || DEFAULT_BASE_URL;
+async function getBaseUrl(userId: string): Promise<string> {
+    // Read the Speaches base URL from the user's stored credentials
+    // instead of accepting it from the query string (SSRF prevention).
+    const [speachesCredential] = await db
+        .select({ baseUrl: apiCredentials.baseUrl })
+        .from(apiCredentials)
+        .where(
+            and(
+                eq(apiCredentials.userId, userId),
+                eq(apiCredentials.provider, "Speaches"),
+            ),
+        )
+        .limit(1);
+    return speachesCredential?.baseUrl || DEFAULT_BASE_URL;
 }
 
 // GET - List installed ASR models
@@ -16,7 +30,7 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const baseUrl = getBaseUrl(request);
+        const baseUrl = await getBaseUrl(session.user.id);
         const response = await fetch(
             `${baseUrl}/models?task=automatic-speech-recognition`,
         );
@@ -47,7 +61,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const baseUrl = getBaseUrl(request);
+        const baseUrl = await getBaseUrl(session.user.id);
         const { modelId } = await request.json();
 
         if (!modelId) {
@@ -88,8 +102,8 @@ export async function DELETE(request: Request) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
+        const baseUrl = await getBaseUrl(session.user.id);
         const url = new URL(request.url);
-        const baseUrl = url.searchParams.get("baseUrl") || DEFAULT_BASE_URL;
         const modelId = url.searchParams.get("modelId");
 
         if (!modelId) {

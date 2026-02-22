@@ -61,6 +61,11 @@ export function TranscriptionSection() {
     const [silenceThresholdDb, setSilenceThresholdDb] = useState(-40);
     const [silenceDurationSeconds, setSilenceDurationSeconds] = useState(1.0);
     const pendingChangesRef = useRef<Map<string, unknown>>(new Map());
+    // Track the last-successfully-saved values for settings that use optimistic
+    // updates, so rollback always reverts to what is actually persisted.
+    const savedSilenceThresholdRef = useRef(-40);
+    const savedSilenceDurationRef = useRef(1.0);
+    const savedSplitSegmentMinutesRef = useRef(60);
 
     useEffect(() => {
         const fetchSettings = async () => {
@@ -80,6 +85,9 @@ export function TranscriptionSection() {
                     setSplitSegmentMinutes(data.splitSegmentMinutes ?? 60);
                     setSilenceThresholdDb(data.silenceThresholdDb ?? -40);
                     setSilenceDurationSeconds(data.silenceDurationSeconds ?? 1.0);
+                    savedSplitSegmentMinutesRef.current = data.splitSegmentMinutes ?? 60;
+                    savedSilenceThresholdRef.current = data.silenceThresholdDb ?? -40;
+                    savedSilenceDurationRef.current = data.silenceDurationSeconds ?? 1.0;
                 }
             } catch (error) {
                 console.error("Failed to fetch settings:", error);
@@ -219,8 +227,6 @@ export function TranscriptionSection() {
         silenceThresholdDb?: number;
         silenceDurationSeconds?: number;
     }) => {
-        const previousThreshold = silenceThresholdDb;
-        const previousDuration = silenceDurationSeconds;
         if (updates.silenceThresholdDb !== undefined) setSilenceThresholdDb(updates.silenceThresholdDb);
         if (updates.silenceDurationSeconds !== undefined) setSilenceDurationSeconds(updates.silenceDurationSeconds);
         try {
@@ -230,15 +236,19 @@ export function TranscriptionSection() {
                 body: JSON.stringify(updates),
             });
             if (!response.ok) throw new Error("Failed to save settings");
+            // Update saved refs only on success
+            if (updates.silenceThresholdDb !== undefined) savedSilenceThresholdRef.current = updates.silenceThresholdDb;
+            if (updates.silenceDurationSeconds !== undefined) savedSilenceDurationRef.current = updates.silenceDurationSeconds;
         } catch {
-            setSilenceThresholdDb(previousThreshold);
-            setSilenceDurationSeconds(previousDuration);
+            // Revert to the last-saved values (not the pre-optimistic-update
+            // local state, which may itself be a previous unsaved value).
+            setSilenceThresholdDb(savedSilenceThresholdRef.current);
+            setSilenceDurationSeconds(savedSilenceDurationRef.current);
             toast.error("Failed to save settings. Changes reverted.");
         }
     };
 
     const handleSplitSegmentMinutesChange = async (value: number) => {
-        const previous = splitSegmentMinutes;
         setSplitSegmentMinutes(value);
         try {
             const response = await fetch("/api/settings/user", {
@@ -249,8 +259,12 @@ export function TranscriptionSection() {
             if (!response.ok) {
                 throw new Error("Failed to save settings");
             }
+            // Update saved ref only on success
+            savedSplitSegmentMinutesRef.current = value;
         } catch {
-            setSplitSegmentMinutes(previous);
+            // Revert to the last-saved value (not the pre-optimistic-update
+            // local state, which may itself be a previous unsaved value).
+            setSplitSegmentMinutes(savedSplitSegmentMinutesRef.current);
             toast.error("Failed to save settings. Changes reverted.");
         }
     };

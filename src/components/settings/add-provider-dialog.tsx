@@ -1,7 +1,7 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { MetalButton } from "@/components/metal-button";
 import { Panel } from "@/components/panel";
@@ -109,7 +109,7 @@ export function AddProviderDialog({
 
     const isSpeaches = provider === "Speaches";
 
-    const fetchSpeachesModels = async (url: string) => {
+    const fetchSpeachesModels = useCallback(async (url: string) => {
         setIsLoadingModels(true);
         try {
             const res = await fetch(
@@ -129,14 +129,13 @@ export function AddProviderDialog({
         } finally {
             setIsLoadingModels(false);
         }
-    };
+    }, [baseUrl]);
 
     useEffect(() => {
         if (isSpeaches && open) {
             fetchSpeachesModels(baseUrl || "http://localhost:8000/v1");
         }
-        // biome-ignore lint/correctness/useExhaustiveDependencies: fetchSpeachesModels is stable within render
-    }, [isSpeaches, open]);
+    }, [isSpeaches, open, fetchSpeachesModels]);
 
     const handleProviderChange = (value: string) => {
         setProvider(value);

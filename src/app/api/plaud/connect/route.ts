@@ -28,7 +28,27 @@ export async function POST(request: Request) {
             );
         }
 
-        const apiBase = rawApiBase ?? DEFAULT_PLAUD_API_BASE;
+        // Validate apiBase: must be a well-formed HTTPS URL on an allowed domain.
+        const ALLOWED_PLAUD_HOSTS = new Set(["api.plaud.ai", "api-euc1.plaud.ai"]);
+        let apiBase = DEFAULT_PLAUD_API_BASE;
+        if (rawApiBase != null) {
+            let parsed: URL;
+            try {
+                parsed = new URL(rawApiBase);
+            } catch {
+                return NextResponse.json(
+                    { error: "Invalid apiBase URL" },
+                    { status: 400 },
+                );
+            }
+            if (parsed.protocol !== "https:" || !ALLOWED_PLAUD_HOSTS.has(parsed.hostname)) {
+                return NextResponse.json(
+                    { error: "apiBase must be an HTTPS URL on an allowed Plaud domain" },
+                    { status: 400 },
+                );
+            }
+            apiBase = rawApiBase;
+        }
         const client = new PlaudClient(bearerToken, apiBase);
         const isValid = await client.testConnection();
 

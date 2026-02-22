@@ -48,6 +48,7 @@ export function RecordingPlayer({
 }: RecordingPlayerProps) {
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
+    const cancelledRef = useRef(false);
     const [duration, setDuration] = useState(0);
     const [volume, setVolume] = useState(75);
     const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
@@ -263,10 +264,22 @@ export function RecordingPlayer({
                                 onEditTitleChange?.(e.target.value)
                             }
                             onKeyDown={(e) => {
-                                if (e.key === "Enter") onSaveTitle?.();
-                                if (e.key === "Escape") onCancelEdit?.();
+                                if (e.key === "Enter") {
+                                    cancelledRef.current = false;
+                                    onSaveTitle?.();
+                                }
+                                if (e.key === "Escape") {
+                                    cancelledRef.current = true;
+                                    onCancelEdit?.();
+                                }
                             }}
-                            onBlur={onSaveTitle}
+                            onBlur={() => {
+                                if (cancelledRef.current) {
+                                    cancelledRef.current = false;
+                                    return;
+                                }
+                                onSaveTitle?.();
+                            }}
                             disabled={isSavingTitle}
                             className="text-xl font-semibold flex-1"
                             autoFocus

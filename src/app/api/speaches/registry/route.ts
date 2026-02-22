@@ -1,4 +1,7 @@
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { db } from "@/db";
+import { apiCredentials } from "@/db/schema";
 import { auth } from "@/lib/auth";
 
 const DEFAULT_BASE_URL = "http://localhost:8000/v1";
@@ -11,8 +14,20 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const url = new URL(request.url);
-        const baseUrl = url.searchParams.get("baseUrl") || DEFAULT_BASE_URL;
+        // Read the Speaches base URL from the user's stored credentials
+        // instead of accepting it from the query string (SSRF prevention).
+        const [speachesCredential] = await db
+            .select({ baseUrl: apiCredentials.baseUrl })
+            .from(apiCredentials)
+            .where(
+                and(
+                    eq(apiCredentials.userId, session.user.id),
+                    eq(apiCredentials.provider, "Speaches"),
+                ),
+            )
+            .limit(1);
+
+        const baseUrl = speachesCredential?.baseUrl || DEFAULT_BASE_URL;
 
         const response = await fetch(
             `${baseUrl}/registry?task=automatic-speech-recognition`,

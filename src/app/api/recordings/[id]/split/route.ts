@@ -58,7 +58,10 @@ export async function POST(
             .where(eq(userSettings.userId, session.user.id))
             .limit(1);
 
-        const splitSegmentMinutes = settings?.splitSegmentMinutes ?? 60;
+        const rawSegmentMinutes = settings?.splitSegmentMinutes ?? 60;
+        // Clamp to a minimum of 1 minute to prevent ffmpeg from hanging
+        // on zero-length or negative segment sizes.
+        const splitSegmentMinutes = Math.max(1, rawSegmentMinutes);
         const segmentSeconds = splitSegmentMinutes * 60;
 
         const storage = await createUserStorageProvider(session.user.id);
@@ -193,7 +196,7 @@ export async function POST(
                 const segEndMs =
                     i < segmentFiles.length - 1
                         ? (i + 1) * durationPerSegmentMs
-                        : recording.duration;
+                        : Math.max(segStartMs, recording.duration);
 
                 const [newRecording] = await db
                     .insert(recordings)

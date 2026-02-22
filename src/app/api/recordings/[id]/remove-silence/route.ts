@@ -13,24 +13,56 @@ import { createUserStorageProvider } from "@/lib/storage/factory";
 
 const execFileAsync = promisify(execFile);
 
+async function getAudioDurationMs(filePath: string): Promise<number> {
+    // Try stream duration first, fall back to format duration
+    for (const flag of ["-show_streams", "-show_format"]) {
+        try {
+            const { stdout } = await execFileAsync("ffprobe", [
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
+                flag,
+                filePath,
+            ]);
+            const info = JSON.parse(stdout) as {
+                streams?: Array<{ codec_type: string; duration?: string }>;
+                format?: { duration?: string };
+            };
+            const durationStr =
+                flag === "-show_streams"
+                    ? info.streams?.find((s) => s.codec_type === "audio")
+                          ?.duration
+                    : info.format?.duration;
+            const sec = parseFloat(durationStr ?? "0");
+            if (sec > 0) return Math.round(sec * 1000);
+        } catch {
+            // try next flag
+        }
+    }
+    return 0;
+}
+
 export async function POST(
     request: Request,
     { params }: { params: Promise<{ id: string }> },
 ) {
+    // Auth check before allocating any resources
+    const session = await auth.api.getSession({
+        headers: request.headers,
+    });
+
+    if (!session?.user) {
+        return NextResponse.json(
+            { error: "Unauthorized" },
+            { status: 401 },
+        );
+    }
+
     const tmpDir = await fs.mkdtemp(
         path.join(os.tmpdir(), "openplaud-silence-"),
     );
     try {
-        const session = await auth.api.getSession({
-            headers: request.headers,
-        });
-
-        if (!session?.user) {
-            return NextResponse.json(
-                { error: "Unauthorized" },
-                { status: 401 },
-            );
-        }
 
         const { id } = await params;
 
@@ -104,9 +136,10 @@ export async function POST(
 
         const md5 = createHash("md5").update(outputBuffer).digest("hex");
 
-        // Estimate duration from file size ratio (rough approximation)
-        const durationRatio = outputBuffer.length / audioBuffer.length;
-        const estimatedDurationMs = Math.round(recording.duration * durationRatio);
+        // Use ffprobe to get the actual duration of the output file.
+        // File-size ratio is unreliable when the output bitrate differs from
+        // the input bitrate (e.g. re-encoding with libopus at a fixed 32 kbps).
+        const estimatedDurationMs = await getAudioDurationMs(outputPath);
 
         const baseFilename = recording.filename.replace(/\.[^.]+$/, "");
         const silencedPlaudFileId = `silence-removed-${recording.plaudFileId}`;
