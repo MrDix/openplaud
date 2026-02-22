@@ -44,48 +44,56 @@ const providerPresets = [
         baseUrl: "",
         placeholder: "sk-...",
         defaultModel: "whisper-1",
+        localProvider: false,
     },
     {
         name: "Groq",
         baseUrl: "https://api.groq.com/openai/v1",
         placeholder: "gsk_...",
         defaultModel: "whisper-large-v3-turbo",
+        localProvider: false,
     },
     {
         name: "Together AI",
         baseUrl: "https://api.together.xyz/v1",
         placeholder: "...",
         defaultModel: "whisper-large-v3",
+        localProvider: false,
     },
     {
         name: "OpenRouter",
         baseUrl: "https://openrouter.ai/api/v1",
         placeholder: "sk-or-...",
         defaultModel: "whisper-1",
+        localProvider: false,
     },
     {
         name: "LM Studio",
         baseUrl: "http://localhost:1234/v1",
         placeholder: "lm-studio",
         defaultModel: "",
+        localProvider: true,
     },
     {
         name: "Ollama",
         baseUrl: "http://localhost:11434/v1",
         placeholder: "ollama",
         defaultModel: "",
+        localProvider: true,
     },
     {
         name: "Speaches",
         baseUrl: "http://localhost:8000/v1",
         placeholder: "speaches",
         defaultModel: "",
+        localProvider: true,
     },
     {
         name: "Custom",
         baseUrl: "",
         placeholder: "Your API key",
         defaultModel: "",
+        localProvider: false,
     },
 ];
 
@@ -270,13 +278,21 @@ export function EditProviderDialog({
                         </div>
 
                         <div className="space-y-2">
-                            <Label htmlFor="apiKey">API Key</Label>
+                            <Label htmlFor="apiKey">
+                                API Key{" "}
+                                {selectedPreset?.localProvider && (
+                                    <span className="font-normal text-muted-foreground">
+                                        (optional)
+                                    </span>
+                                )}
+                            </Label>
                             <Input
                                 id="apiKey"
                                 type="password"
                                 placeholder={
-                                    selectedPreset?.placeholder ||
-                                    "Enter a new key to replace the current one"
+                                    selectedPreset?.localProvider
+                                        ? `Leave blank to keep current key`
+                                        : "Enter a new key to replace the current one"
                                 }
                                 value={apiKey}
                                 onChange={(e) => setApiKey(e.target.value)}
@@ -286,9 +302,9 @@ export function EditProviderDialog({
                             <div className="text-xs text-muted-foreground flex items-center gap-2">
                                 <Shield className="w-3.5 h-3.5 shrink-0" />
                                 <span>
-                                    For security, the saved API key is never
-                                    shown. Leave this blank to keep your current
-                                    key, or enter a new key to replace it.
+                                    {selectedPreset?.localProvider
+                                        ? "No API key needed for local providers. Leave blank to keep the current value."
+                                        : "For security, the saved API key is never shown. Leave this blank to keep your current key, or enter a new key to replace it."}
                                 </span>
                             </div>
                         </div>

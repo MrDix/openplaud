@@ -112,27 +112,36 @@ export function SpeachesModelManager({
     const handleInstall = async (modelId: string) => {
         setInstallingId(modelId);
 
-        // Poll every 2.5 s to keep the installed list fresh while downloading
-        pollIntervalRef.current = setInterval(async () => {
-            const models = await fetchInstalledSilent();
-            setInstalledModels(models);
-            // If model already appeared (e.g. very fast download), polling catches it
-            if (models.some((m) => m.id === modelId)) {
-                clearInterval(pollIntervalRef.current!);
-                pollIntervalRef.current = null;
-            }
-        }, 2500);
+        // Polling promise: resolves as soon as the model appears in the
+        // installed list. This lets us clear the loading state immediately
+        // even if the POST connection is still open.
+        const pollPromise = new Promise<void>((resolve) => {
+            pollIntervalRef.current = setInterval(async () => {
+                const models = await fetchInstalledSilent();
+                setInstalledModels(models);
+                if (models.some((m) => m.id === modelId)) {
+                    clearInterval(pollIntervalRef.current!);
+                    pollIntervalRef.current = null;
+                    resolve();
+                }
+            }, 2500);
+        });
+
+        // POST promise: resolves when the server confirms the download.
+        const installPromise = fetch(
+            `/api/speaches/models?baseUrl=${encodeURIComponent(baseUrl)}`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ modelId }),
+            },
+        ).then((res) => {
+            if (!res.ok) throw new Error("Failed to install");
+        });
 
         try {
-            const res = await fetch(
-                `/api/speaches/models?baseUrl=${encodeURIComponent(baseUrl)}`,
-                {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ modelId }),
-                },
-            );
-            if (!res.ok) throw new Error("Failed to install");
+            // Whichever signal arrives first unblocks the UI
+            await Promise.race([pollPromise, installPromise]);
             toast.success(`Model installed: ${modelId}`);
             await fetchInstalled();
             onModelsChanged();

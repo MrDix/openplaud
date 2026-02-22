@@ -34,48 +34,56 @@ const providerPresets = [
         baseUrl: "",
         placeholder: "sk-...",
         defaultModel: "whisper-1",
+        localProvider: false,
     },
     {
         name: "Groq",
         baseUrl: "https://api.groq.com/openai/v1",
         placeholder: "gsk_...",
         defaultModel: "whisper-large-v3-turbo",
+        localProvider: false,
     },
     {
         name: "Together AI",
         baseUrl: "https://api.together.xyz/v1",
         placeholder: "...",
         defaultModel: "whisper-large-v3",
+        localProvider: false,
     },
     {
         name: "OpenRouter",
         baseUrl: "https://openrouter.ai/api/v1",
         placeholder: "sk-or-...",
         defaultModel: "whisper-1",
+        localProvider: false,
     },
     {
         name: "LM Studio",
         baseUrl: "http://localhost:1234/v1",
         placeholder: "lm-studio",
         defaultModel: "",
+        localProvider: true,
     },
     {
         name: "Ollama",
         baseUrl: "http://localhost:11434/v1",
         placeholder: "ollama",
         defaultModel: "",
+        localProvider: true,
     },
     {
         name: "Speaches",
         baseUrl: "http://localhost:8000/v1",
         placeholder: "speaches",
         defaultModel: "",
+        localProvider: true,
     },
     {
         name: "Custom",
         baseUrl: "",
         placeholder: "Your API key",
         defaultModel: "",
+        localProvider: false,
     },
 ];
 
@@ -139,10 +147,20 @@ export function AddProviderDialog({
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!provider || !apiKey) {
-            toast.error("Provider and API key are required");
+        if (!provider) {
+            toast.error("Please select a provider");
             return;
         }
+
+        const isLocalProvider = selectedPreset?.localProvider ?? false;
+        if (!isLocalProvider && !apiKey) {
+            toast.error("API key is required for this provider");
+            return;
+        }
+
+        // For local providers without auth, use the placeholder as a dummy key
+        const effectiveApiKey =
+            apiKey.trim() || selectedPreset?.placeholder || "none";
 
         setIsLoading(true);
         try {
@@ -151,7 +169,7 @@ export function AddProviderDialog({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     provider,
-                    apiKey,
+                    apiKey: effectiveApiKey,
                     baseUrl: baseUrl || null,
                     defaultModel: defaultModel || null,
                     isDefaultTranscription,
@@ -213,12 +231,21 @@ export function AddProviderDialog({
                         </div>
 
                         <div className="space-y-2">
-                            <Label htmlFor="apiKey">API Key</Label>
+                            <Label htmlFor="apiKey">
+                                API Key{" "}
+                                {selectedPreset?.localProvider && (
+                                    <span className="font-normal text-muted-foreground">
+                                        (optional)
+                                    </span>
+                                )}
+                            </Label>
                             <Input
                                 id="apiKey"
                                 type="password"
                                 placeholder={
-                                    selectedPreset?.placeholder || "Your API key"
+                                    selectedPreset?.localProvider
+                                        ? `Leave blank or enter a value (e.g. "${selectedPreset.placeholder}")`
+                                        : (selectedPreset?.placeholder ?? "Your API key")
                                 }
                                 value={apiKey}
                                 onChange={(e) => setApiKey(e.target.value)}
