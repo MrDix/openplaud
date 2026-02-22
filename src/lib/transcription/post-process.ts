@@ -74,15 +74,15 @@ export function removeRepetitions(text: string): string {
 
     // Each tier: [min window size, max window size, min consecutive repeats]
     // Short phrases (1-3 words) need a very high threshold (15+) because
-    // legitimate song refrains ("la la la", "na na na") can reach 6-8 consecutive
+    // legitimate repeated syllables or refrains can reach 6-8 consecutive
     // repetitions without being a loop. Whisper hallucination loops for short
     // syllables typically run into the hundreds, so 15 is still well below that.
     // The segment quality filter (compression_ratio) is the primary defence for
     // short-phrase loops; this text scan is a last-resort safety net.
     const tiers: Array<[number, number, number]> = [
-        [1, 3, 15], // e.g. "la la la..." — 15+ to distinguish loop from refrain
-        [4, 8, 4],  // e.g. "I get mad I get mad..." — 4+ consecutive
-        [9, 20, 3], // e.g. "As the water falls down..." — 3+ consecutive
+        [1, 3, 15], // short filler syllables — require 15+ consecutive repetitions
+        [4, 8, 4],  // medium phrases      — require 4+ consecutive repetitions
+        [9, 20, 3], // long phrases        — require 3+ consecutive repetitions
     ];
 
     for (const [minW, maxW, minReps] of tiers) {
