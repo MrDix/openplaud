@@ -1,6 +1,6 @@
 "use client";
 
-import { Shield } from "lucide-react";
+import { RefreshCw, Shield } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { MetalButton } from "@/components/metal-button";
@@ -301,6 +301,10 @@ export function EditProviderDialog({
                                 placeholder="https://api.example.com/v1"
                                 value={baseUrl}
                                 onChange={(e) => setBaseUrl(e.target.value)}
+                                onBlur={(e) => {
+                                    if (isSpeaches)
+                                        fetchSpeachesModels(e.target.value);
+                                }}
                                 disabled={isLoading}
                                 className="font-mono text-sm"
                             />
@@ -324,6 +328,7 @@ export function EditProviderDialog({
                                 )}
                             </div>
                             {isSpeaches ? (
+                                <div className="flex gap-1">
                                 <Select
                                     value={defaultModel}
                                     onValueChange={setDefaultModel}
@@ -349,6 +354,23 @@ export function EditProviderDialog({
                                         ))}
                                     </SelectContent>
                                 </Select>
+                                <button
+                                    type="button"
+                                    aria-label="Refresh model list"
+                                    disabled={isLoadingModels}
+                                    onClick={() =>
+                                        fetchSpeachesModels(
+                                            baseUrl ||
+                                                "http://localhost:8000/v1",
+                                        )
+                                    }
+                                    className="shrink-0 flex items-center justify-center h-10 w-10 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+                                >
+                                    <RefreshCw
+                                        className={`h-4 w-4 ${isLoadingModels ? "animate-spin" : ""}`}
+                                    />
+                                </button>
+                                </div>
                             ) : (
                                 <Input
                                     id="defaultModel"

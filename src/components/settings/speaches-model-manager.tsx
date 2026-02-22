@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { MetalButton } from "@/components/metal-button";
 import { Button } from "@/components/ui/button";
@@ -42,16 +43,33 @@ export function SpeachesModelManager({
     const [isLoadingRegistry, setIsLoadingRegistry] = useState(false);
     const [installingId, setInstallingId] = useState<string | null>(null);
     const [removingId, setRemovingId] = useState<string | null>(null);
+    const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    const fetchInstalled = async () => {
-        setIsLoadingInstalled(true);
+    // Clear poll on unmount
+    useEffect(() => {
+        return () => {
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        };
+    }, []);
+
+    const fetchInstalledSilent = async (): Promise<SpeachesModel[]> => {
         try {
             const res = await fetch(
                 `/api/speaches/models?baseUrl=${encodeURIComponent(baseUrl)}`,
             );
-            if (!res.ok) throw new Error("Failed to fetch");
+            if (!res.ok) return [];
             const data = await res.json();
-            setInstalledModels(data.data || []);
+            return data.data || [];
+        } catch {
+            return [];
+        }
+    };
+
+    const fetchInstalled = async () => {
+        setIsLoadingInstalled(true);
+        try {
+            const models = await fetchInstalledSilent();
+            setInstalledModels(models);
         } catch {
             toast.error("Failed to load installed models");
         } finally {
@@ -80,11 +98,31 @@ export function SpeachesModelManager({
             fetchInstalled();
             fetchRegistry();
         }
-        // biome-ignore lint/correctness/useExhaustiveDependencies: fetchInstalled/fetchRegistry are stable within render
+        // biome-ignore lint/correctness/useExhaustiveDependencies: fetch fns are stable within render
     }, [open, baseUrl]);
+
+    // Always refresh the parent list when the dialog closes
+    const handleOpenChange = (isOpen: boolean) => {
+        if (!isOpen) {
+            onModelsChanged();
+        }
+        onOpenChange(isOpen);
+    };
 
     const handleInstall = async (modelId: string) => {
         setInstallingId(modelId);
+
+        // Poll every 2.5 s to keep the installed list fresh while downloading
+        pollIntervalRef.current = setInterval(async () => {
+            const models = await fetchInstalledSilent();
+            setInstalledModels(models);
+            // If model already appeared (e.g. very fast download), polling catches it
+            if (models.some((m) => m.id === modelId)) {
+                clearInterval(pollIntervalRef.current!);
+                pollIntervalRef.current = null;
+            }
+        }, 2500);
+
         try {
             const res = await fetch(
                 `/api/speaches/models?baseUrl=${encodeURIComponent(baseUrl)}`,
@@ -95,12 +133,16 @@ export function SpeachesModelManager({
                 },
             );
             if (!res.ok) throw new Error("Failed to install");
-            toast.success(`Installing ${modelId}…`);
+            toast.success(`Model installed: ${modelId}`);
             await fetchInstalled();
             onModelsChanged();
         } catch {
             toast.error("Failed to install model");
         } finally {
+            if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+            }
             setInstallingId(null);
         }
     };
@@ -129,7 +171,7 @@ export function SpeachesModelManager({
     );
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle>Manage Speaches Models</DialogTitle>
@@ -193,28 +235,41 @@ export function SpeachesModelManager({
                             </p>
                         ) : (
                             <div className="space-y-1">
-                                {availableToInstall.map((model) => (
-                                    <div
-                                        key={model.id}
-                                        className="flex items-center justify-between gap-2 py-1.5 px-3 rounded-md border bg-card"
-                                    >
-                                        <span className="font-mono text-xs truncate">
-                                            {model.id}
-                                        </span>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            disabled={installingId === model.id}
-                                            onClick={() =>
-                                                handleInstall(model.id)
-                                            }
+                                {availableToInstall.map((model) => {
+                                    const isInstalling =
+                                        installingId === model.id;
+                                    return (
+                                        <div
+                                            key={model.id}
+                                            className={`flex items-center justify-between gap-2 py-1.5 px-3 rounded-md border bg-card ${isInstalling ? "border-primary/40 bg-primary/5" : ""}`}
                                         >
-                                            {installingId === model.id
-                                                ? "Installing…"
-                                                : "Install"}
-                                        </Button>
-                                    </div>
-                                ))}
+                                            <span
+                                                className={`font-mono text-xs truncate ${isInstalling ? "text-muted-foreground" : ""}`}
+                                            >
+                                                {model.id}
+                                            </span>
+                                            {isInstalling ? (
+                                                <div className="flex items-center gap-1.5 shrink-0 text-muted-foreground text-xs">
+                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                    <span>Downloading…</span>
+                                                </div>
+                                            ) : (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    disabled={
+                                                        installingId !== null
+                                                    }
+                                                    onClick={() =>
+                                                        handleInstall(model.id)
+                                                    }
+                                                >
+                                                    Install
+                                                </Button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -222,10 +277,18 @@ export function SpeachesModelManager({
 
                 <div className="pt-2">
                     <MetalButton
-                        onClick={() => onOpenChange(false)}
+                        disabled={installingId !== null}
+                        onClick={() => handleOpenChange(false)}
                         className="w-full"
                     >
-                        Close
+                        {installingId !== null ? (
+                            <span className="flex items-center gap-2">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Downloading model…
+                            </span>
+                        ) : (
+                            "Close"
+                        )}
                     </MetalButton>
                 </div>
             </DialogContent>
