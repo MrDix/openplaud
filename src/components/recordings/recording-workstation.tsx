@@ -27,6 +27,8 @@ export function RecordingWorkstation({
 }: RecordingWorkstationProps) {
     const router = useRouter();
     const [isTranscribing, setIsTranscribing] = useState(false);
+    const [isDeletingTranscription, setIsDeletingTranscription] =
+        useState(false);
     const [isSplitting, setIsSplitting] = useState(false);
     const [splitConflict, setSplitConflict] = useState<number | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
@@ -34,6 +36,13 @@ export function RecordingWorkstation({
     const [splitSegmentMinutes, setSplitSegmentMinutes] = useState<
         number | null
     >(null);
+
+    const anyBusy =
+        isTranscribing ||
+        isDeletingTranscription ||
+        isSplitting ||
+        isDeleting ||
+        isRemovingSilence;
 
     useEffect(() => {
         fetch("/api/settings/user")
@@ -74,6 +83,34 @@ export function RecordingWorkstation({
         }
     }, [recording.id, router]);
 
+    const handleDeleteTranscription = useCallback(async () => {
+        if (
+            !window.confirm(
+                "Remove the transcription? Re-transcribing costs API credits.",
+            )
+        )
+            return;
+        setIsDeletingTranscription(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${recording.id}/transcribe`,
+                { method: "DELETE" },
+            );
+
+            if (response.ok) {
+                toast.success("Transcription removed");
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to remove transcription");
+            }
+        } catch {
+            toast.error("Failed to remove transcription");
+        } finally {
+            setIsDeletingTranscription(false);
+        }
+    }, [recording.id, router]);
+
     const runSplit = useCallback(
         async (force: boolean) => {
             setIsSplitting(true);
@@ -108,7 +145,11 @@ export function RecordingWorkstation({
     const handleSplitForce = useCallback(() => runSplit(true), [runSplit]);
 
     const handleDelete = useCallback(async () => {
-        if (!window.confirm("Are you sure you want to delete this recording?"))
+        if (
+            !window.confirm(
+                "Permanently delete this recording? This cannot be undone.",
+            )
+        )
             return;
         setIsDeleting(true);
         try {
@@ -130,10 +171,13 @@ export function RecordingWorkstation({
         }
     }, [recording.id, router]);
 
-    const isProcessing =
-        isDeleting || isRemovingSilence || isSplitting || isTranscribing;
-
     const handleRemoveSilence = useCallback(async () => {
+        if (
+            !window.confirm(
+                "Remove silence from this recording? This will create a new recording.",
+            )
+        )
+            return;
         setIsRemovingSilence(true);
         try {
             const response = await fetch(
@@ -181,7 +225,7 @@ export function RecordingWorkstation({
                     <Button
                         onClick={handleRemoveSilence}
                         variant="outline"
-                        disabled={isProcessing}
+                        disabled={anyBusy}
                     >
                         <VolumeX className="w-4 h-4 mr-2" />
                         {isRemovingSilence ? "Processing..." : "Remove Silence"}
@@ -211,7 +255,7 @@ export function RecordingWorkstation({
                                             onClick={handleSplitForce}
                                             variant="destructive"
                                             size="sm"
-                                            disabled={isProcessing}
+                                            disabled={anyBusy}
                                         >
                                             {isSplitting
                                                 ? "Splitting..."
@@ -222,7 +266,7 @@ export function RecordingWorkstation({
                                 <Button
                                     onClick={handleSplit}
                                     variant="outline"
-                                    disabled={isProcessing}
+                                    disabled={anyBusy}
                                 >
                                     <Scissors className="w-4 h-4 mr-2" />
                                     {isSplitting
@@ -238,7 +282,7 @@ export function RecordingWorkstation({
                         <Button
                             onClick={handleDelete}
                             variant="outline"
-                            disabled={isProcessing}
+                            disabled={anyBusy}
                             className="text-destructive hover:text-destructive"
                         >
                             <Trash2 className="w-4 h-4 mr-2" />
@@ -255,7 +299,9 @@ export function RecordingWorkstation({
                         transcription={transcription}
                         isTranscribing={isTranscribing}
                         onTranscribe={handleTranscribe}
-                        disabled={isProcessing}
+                        isDeletingTranscription={isDeletingTranscription}
+                        onDeleteTranscription={handleDeleteTranscription}
+                        disabled={anyBusy}
                     />
 
                     {/* Metadata */}
