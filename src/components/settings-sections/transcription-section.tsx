@@ -63,8 +63,17 @@ export function TranscriptionSection() {
     // value is valid; the raw string is shown in the input while typing.
     const [splitSegmentMinutesInput, setSplitSegmentMinutesInput] =
         useState("60");
+    const [silenceThresholdDb, setSilenceThresholdDb] = useState(-40);
+    const [silenceThresholdDbInput, setSilenceThresholdDbInput] =
+        useState("-40");
+    const [silenceDurationSeconds, setSilenceDurationSeconds] = useState(1.0);
+    const [silenceDurationSecondsInput, setSilenceDurationSecondsInput] =
+        useState("1");
     const pendingChangesRef = useRef<Map<string, unknown>>(new Map());
-    // Track the last-successfully-saved value for rollback on save failure.
+    // Track the last-successfully-saved values for settings that use optimistic
+    // updates, so rollback always reverts to what is actually persisted.
+    const savedSilenceThresholdRef = useRef(-40);
+    const savedSilenceDurationRef = useRef(1.0);
     const savedSplitSegmentMinutesRef = useRef(60);
 
     useEffect(() => {
@@ -86,8 +95,22 @@ export function TranscriptionSection() {
                     setSplitSegmentMinutesInput(
                         String(data.splitSegmentMinutes ?? 60),
                     );
+                    setSilenceThresholdDb(data.silenceThresholdDb ?? -40);
+                    setSilenceThresholdDbInput(
+                        String(data.silenceThresholdDb ?? -40),
+                    );
+                    setSilenceDurationSeconds(
+                        data.silenceDurationSeconds ?? 1.0,
+                    );
+                    setSilenceDurationSecondsInput(
+                        String(data.silenceDurationSeconds ?? 1.0),
+                    );
                     savedSplitSegmentMinutesRef.current =
                         data.splitSegmentMinutes ?? 60;
+                    savedSilenceThresholdRef.current =
+                        data.silenceThresholdDb ?? -40;
+                    savedSilenceDurationRef.current =
+                        data.silenceDurationSeconds ?? 1.0;
                 }
             } catch (error) {
                 console.error("Failed to fetch settings:", error);
@@ -218,6 +241,52 @@ export function TranscriptionSection() {
                     setSyncTitleToPlaud(previous);
                     pendingChangesRef.current.delete("syncTitleToPlaud");
                 }
+            }
+            toast.error("Failed to save settings. Changes reverted.");
+        }
+    };
+
+    const handleSilenceSettingChange = async (updates: {
+        silenceThresholdDb?: number;
+        silenceDurationSeconds?: number;
+    }) => {
+        if (updates.silenceThresholdDb !== undefined)
+            setSilenceThresholdDb(updates.silenceThresholdDb);
+        if (updates.silenceDurationSeconds !== undefined)
+            setSilenceDurationSeconds(updates.silenceDurationSeconds);
+        try {
+            const response = await fetch("/api/settings/user", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(updates),
+            });
+            if (!response.ok) throw new Error("Failed to save settings");
+            // Update saved refs and string inputs only on success
+            if (updates.silenceThresholdDb !== undefined) {
+                savedSilenceThresholdRef.current = updates.silenceThresholdDb;
+                setSilenceThresholdDbInput(String(updates.silenceThresholdDb));
+            }
+            if (updates.silenceDurationSeconds !== undefined) {
+                savedSilenceDurationRef.current =
+                    updates.silenceDurationSeconds;
+                setSilenceDurationSecondsInput(
+                    String(updates.silenceDurationSeconds),
+                );
+            }
+        } catch {
+            // Only revert the setting that was actually changed, so an
+            // unrelated field's input is not overwritten on failure.
+            if (updates.silenceThresholdDb !== undefined) {
+                setSilenceThresholdDb(savedSilenceThresholdRef.current);
+                setSilenceThresholdDbInput(
+                    String(savedSilenceThresholdRef.current),
+                );
+            }
+            if (updates.silenceDurationSeconds !== undefined) {
+                setSilenceDurationSeconds(savedSilenceDurationRef.current);
+                setSilenceDurationSecondsInput(
+                    String(savedSilenceDurationRef.current),
+                );
             }
             toast.error("Failed to save settings. Changes reverted.");
         }
@@ -441,7 +510,12 @@ export function TranscriptionSection() {
                         onBlur={(e) => {
                             const val = parseInt(e.target.value, 10);
                             if (!Number.isNaN(val) && val >= 1 && val <= 360) {
-                                handleSplitSegmentMinutesChange(val);
+                                // Skip the API call if the value hasn't changed
+                                if (val !== splitSegmentMinutes) {
+                                    handleSplitSegmentMinutesChange(val);
+                                } else {
+                                    setSplitSegmentMinutesInput(String(val));
+                                }
                             } else {
                                 // Revert the display to the last valid saved value
                                 setSplitSegmentMinutesInput(
@@ -455,6 +529,88 @@ export function TranscriptionSection() {
                     <p className="text-xs text-muted-foreground">
                         When splitting a recording, each segment will be at most
                         this many minutes long. Default: 60 minutes.
+                    </p>
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="silence-threshold-db">
+                        Silence threshold (dB)
+                    </Label>
+                    <Input
+                        id="silence-threshold-db"
+                        type="number"
+                        min={-60}
+                        max={-10}
+                        value={silenceThresholdDbInput}
+                        onChange={(e) => {
+                            setSilenceThresholdDbInput(e.target.value);
+                        }}
+                        onBlur={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            if (
+                                !Number.isNaN(val) &&
+                                val >= -60 &&
+                                val <= -10
+                            ) {
+                                // Always normalize the displayed value
+                                setSilenceThresholdDbInput(String(val));
+                                if (val === savedSilenceThresholdRef.current)
+                                    return;
+                                handleSilenceSettingChange({
+                                    silenceThresholdDb: val,
+                                });
+                            } else {
+                                setSilenceThresholdDbInput(
+                                    String(silenceThresholdDb),
+                                );
+                            }
+                        }}
+                        disabled={isSavingSettings}
+                        className="w-32"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                        Audio below this level (in dBFS) is treated as silence.
+                        Lower values (e.g. -50) are more aggressive; higher
+                        values (e.g. -20) remove more. Default: -40 dB.
+                    </p>
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="silence-duration-seconds">
+                        Minimum silence duration (seconds)
+                    </Label>
+                    <Input
+                        id="silence-duration-seconds"
+                        type="number"
+                        min={0.5}
+                        max={30}
+                        step={0.5}
+                        value={silenceDurationSecondsInput}
+                        onChange={(e) => {
+                            setSilenceDurationSecondsInput(e.target.value);
+                        }}
+                        onBlur={(e) => {
+                            const val = parseFloat(e.target.value);
+                            if (!Number.isNaN(val) && val >= 0.5 && val <= 30) {
+                                // Always normalize the displayed value
+                                setSilenceDurationSecondsInput(String(val));
+                                if (val === savedSilenceDurationRef.current)
+                                    return;
+                                handleSilenceSettingChange({
+                                    silenceDurationSeconds: val,
+                                });
+                            } else {
+                                setSilenceDurationSecondsInput(
+                                    String(silenceDurationSeconds),
+                                );
+                            }
+                        }}
+                        disabled={isSavingSettings}
+                        className="w-32"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                        Only silence passages longer than this will be removed.
+                        Default: 1.0 second.
                     </p>
                 </div>
             </div>

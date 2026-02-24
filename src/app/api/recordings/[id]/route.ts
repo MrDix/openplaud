@@ -78,7 +78,6 @@ export async function PATCH(
         }
 
         const { id } = await params;
-
         let body: unknown;
         try {
             body = await request.json();
@@ -88,16 +87,14 @@ export async function PATCH(
                 { status: 400 },
             );
         }
-
-        if (typeof (body as Record<string, unknown>)?.filename !== "string") {
+        const parsed = body as Record<string, unknown>;
+        if (typeof parsed?.filename !== "string") {
             return NextResponse.json(
                 { error: "Filename must be a string" },
                 { status: 400 },
             );
         }
-        const filename = (
-            (body as Record<string, unknown>).filename as string
-        ).trim();
+        const filename = parsed.filename.trim();
 
         if (!filename) {
             return NextResponse.json(
@@ -126,7 +123,7 @@ export async function PATCH(
 
         await db
             .update(recordings)
-            .set({ filename, updatedAt: new Date() })
+            .set({ filename, filenameModified: true, updatedAt: new Date() })
             .where(
                 and(
                     eq(recordings.id, id),
@@ -180,10 +177,12 @@ export async function DELETE(
             );
         }
 
-        const isPlaudLocallyCreated =
-            recording.plaudFileId.startsWith("split-");
+        const isLocallyCreated =
+            recording.plaudFileId.startsWith("split-") ||
+            recording.plaudFileId.startsWith("silence-removed-") ||
+            recording.plaudFileId.startsWith("uploaded-");
 
-        if (!isPlaudLocallyCreated) {
+        if (!isLocallyCreated) {
             return NextResponse.json(
                 { error: "Only locally created recordings can be deleted" },
                 { status: 403 },
