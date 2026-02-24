@@ -1,46 +1,14 @@
-import { and, eq } from "drizzle-orm";
-import { db } from "@/db";
-import { plaudConnections, recordings } from "@/db/schema";
-import { createPlaudClient } from "@/lib/plaud/client";
-
+/**
+ * Returns true for recordings that were created locally (not synced from a
+ * Plaud device), meaning they do not have a real Plaud file ID and cannot be
+ * synced back to the device.
+ *
+ * Safe to import from client components — no server-side dependencies.
+ */
 export function isPlaudLocallyCreated(plaudFileId: string): boolean {
     return (
         plaudFileId.startsWith("split-") ||
         plaudFileId.startsWith("silence-removed-") ||
         plaudFileId.startsWith("uploaded-")
     );
-}
-
-export type SyncTitleResult = "synced" | "locally_created" | "no_connection";
-
-export async function syncTitleToPlaudIfNeeded(
-    userId: string,
-    recordingId: string,
-    plaudFileId: string,
-    newTitle: string,
-): Promise<SyncTitleResult> {
-    if (isPlaudLocallyCreated(plaudFileId)) return "locally_created";
-
-    const [connection] = await db
-        .select()
-        .from(plaudConnections)
-        .where(eq(plaudConnections.userId, userId))
-        .limit(1);
-
-    if (!connection) return "no_connection";
-
-    const plaudClient = await createPlaudClient(
-        connection.bearerToken,
-        connection.apiBase,
-    );
-    await plaudClient.updateFilename(plaudFileId, newTitle);
-
-    await db
-        .update(recordings)
-        .set({ filenameModified: false })
-        .where(
-            and(eq(recordings.id, recordingId), eq(recordings.userId, userId)),
-        );
-
-    return "synced";
 }

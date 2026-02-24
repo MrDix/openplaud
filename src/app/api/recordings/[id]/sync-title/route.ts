@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { recordings } from "@/db/schema";
 import { auth } from "@/lib/auth";
-import { syncTitleToPlaudIfNeeded } from "@/lib/plaud/sync-title";
+import { syncTitleToPlaudIfNeeded } from "@/lib/plaud/sync-title-server";
 
 export async function POST(
     request: Request,

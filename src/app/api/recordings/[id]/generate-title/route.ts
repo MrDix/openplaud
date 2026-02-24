@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { recordings, transcriptions, userSettings } from "@/db/schema";
 import { generateTitleFromTranscription } from "@/lib/ai/generate-title";
 import { auth } from "@/lib/auth";
-import { syncTitleToPlaudIfNeeded } from "@/lib/plaud/sync-title";
+import { syncTitleToPlaudIfNeeded } from "@/lib/plaud/sync-title-server";
 
 export async function POST(
     request: Request,
