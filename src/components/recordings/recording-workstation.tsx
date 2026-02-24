@@ -1,13 +1,21 @@
 "use client";
 
-import { ArrowLeft, Scissors, Trash2, VolumeX } from "lucide-react";
+import {
+    ArrowLeft,
+    CloudUpload,
+    Pencil,
+    Scissors,
+    Trash2,
+    VolumeX,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { RecordingPlayer } from "@/components/dashboard/recording-player";
 import { TranscriptionPanel } from "@/components/dashboard/transcription-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import type { Recording } from "@/types/recording";
 
 interface Transcription {
@@ -29,17 +37,25 @@ export function RecordingWorkstation({
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [isDeletingTranscription, setIsDeletingTranscription] =
         useState(false);
+    const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
+    const [isEditingTitle, setIsEditingTitle] = useState(false);
+    const [editTitleValue, setEditTitleValue] = useState("");
+    const [isSavingTitle, setIsSavingTitle] = useState(false);
+    const [isSyncingToPlaud, setIsSyncingToPlaud] = useState(false);
     const [isSplitting, setIsSplitting] = useState(false);
     const [splitConflict, setSplitConflict] = useState<number | null>(null);
+    const cancelledRef = useRef(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [isRemovingSilence, setIsRemovingSilence] = useState(false);
-    const [splitSegmentMinutes, setSplitSegmentMinutes] = useState<
-        number | null
-    >(null);
+    const [splitSegmentMinutes, setSplitSegmentMinutes] = useState(60);
 
     const anyBusy =
         isTranscribing ||
         isDeletingTranscription ||
+        isGeneratingTitle ||
+        isEditingTitle ||
+        isSavingTitle ||
+        isSyncingToPlaud ||
         isSplitting ||
         isDeleting ||
         isRemovingSilence;
@@ -84,12 +100,6 @@ export function RecordingWorkstation({
     }, [recording.id, router]);
 
     const handleDeleteTranscription = useCallback(async () => {
-        if (
-            !window.confirm(
-                "Remove the transcription? Re-transcribing costs API credits.",
-            )
-        )
-            return;
         setIsDeletingTranscription(true);
         try {
             const response = await fetch(
@@ -108,6 +118,82 @@ export function RecordingWorkstation({
             toast.error("Failed to remove transcription");
         } finally {
             setIsDeletingTranscription(false);
+        }
+    }, [recording.id, router]);
+
+    const handleGenerateTitle = useCallback(async () => {
+        setIsGeneratingTitle(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${recording.id}/generate-title`,
+                { method: "POST" },
+            );
+
+            if (response.ok) {
+                const data = await response.json();
+                toast.success(`Title generated: "${data.title}"`);
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to generate title");
+            }
+        } catch {
+            toast.error("Failed to generate title");
+        } finally {
+            setIsGeneratingTitle(false);
+        }
+    }, [recording.id, router]);
+
+    const handleSaveTitle = useCallback(async () => {
+        const trimmed = editTitleValue.trim();
+        if (!trimmed || trimmed === recording.filename) {
+            setIsEditingTitle(false);
+            return;
+        }
+
+        setIsSavingTitle(true);
+        try {
+            const response = await fetch(`/api/recordings/${recording.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename: trimmed }),
+            });
+
+            if (response.ok) {
+                setIsEditingTitle(false);
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to save title");
+                setIsEditingTitle(false);
+            }
+        } catch {
+            toast.error("Failed to save title");
+            setIsEditingTitle(false);
+        } finally {
+            setIsSavingTitle(false);
+        }
+    }, [editTitleValue, recording.filename, recording.id, router]);
+
+    const handleSyncToPlaud = useCallback(async () => {
+        setIsSyncingToPlaud(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${recording.id}/sync-title`,
+                { method: "POST" },
+            );
+
+            if (response.ok) {
+                toast.success("Title synced to Plaud");
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to sync title");
+            }
+        } catch {
+            toast.error("Failed to sync title");
+        } finally {
+            setIsSyncingToPlaud(false);
         }
     }, [recording.id, router]);
 
@@ -145,11 +231,7 @@ export function RecordingWorkstation({
     const handleSplitForce = useCallback(() => runSplit(true), [runSplit]);
 
     const handleDelete = useCallback(async () => {
-        if (
-            !window.confirm(
-                "Permanently delete this recording? This cannot be undone.",
-            )
-        )
+        if (!window.confirm("Are you sure you want to delete this recording?"))
             return;
         setIsDeleting(true);
         try {
@@ -172,12 +254,6 @@ export function RecordingWorkstation({
     }, [recording.id, router]);
 
     const handleRemoveSilence = useCallback(async () => {
-        if (
-            !window.confirm(
-                "Remove silence from this recording? This will create a new recording.",
-            )
-        )
-            return;
         setIsRemovingSilence(true);
         try {
             const response = await fetch(
@@ -215,66 +291,128 @@ export function RecordingWorkstation({
                         <ArrowLeft className="w-4 h-4" />
                     </Button>
                     <div className="flex-1 min-w-0">
-                        <h1 className="text-3xl font-bold truncate">
-                            {recording.filename}
-                        </h1>
+                        <div className="flex items-center gap-1 min-w-0">
+                            {isEditingTitle ? (
+                                <Input
+                                    value={editTitleValue}
+                                    onChange={(e) =>
+                                        setEditTitleValue(e.target.value)
+                                    }
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                            cancelledRef.current = false;
+                                            e.currentTarget.blur();
+                                        }
+                                        if (e.key === "Escape") {
+                                            cancelledRef.current = true;
+                                            e.currentTarget.blur();
+                                        }
+                                    }}
+                                    onBlur={() => {
+                                        if (cancelledRef.current)
+                                            setIsEditingTitle(false);
+                                        else handleSaveTitle();
+                                        cancelledRef.current = false;
+                                    }}
+                                    disabled={isSavingTitle}
+                                    className="text-2xl font-bold h-auto py-0.5 flex-1"
+                                    autoFocus
+                                />
+                            ) : (
+                                <h1 className="text-3xl font-bold truncate flex-1">
+                                    {recording.filename}
+                                </h1>
+                            )}
+                            {!isEditingTitle && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="shrink-0"
+                                    disabled={anyBusy}
+                                    onClick={() => {
+                                        cancelledRef.current = false;
+                                        setEditTitleValue(recording.filename);
+                                        setIsEditingTitle(true);
+                                    }}
+                                    title="Edit title"
+                                >
+                                    <Pencil className="w-4 h-4" />
+                                </Button>
+                            )}
+                            {!recording.plaudFileId.startsWith("split-") &&
+                                !recording.plaudFileId.startsWith(
+                                    "silence-removed-",
+                                ) &&
+                                recording.filenameModified && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="shrink-0"
+                                        onClick={handleSyncToPlaud}
+                                        disabled={isSyncingToPlaud}
+                                        title="Sync title to Plaud device"
+                                    >
+                                        <CloudUpload className="w-4 h-4" />
+                                    </Button>
+                                )}
+                        </div>
                         <p className="text-muted-foreground text-sm mt-1">
                             {new Date(recording.startTime).toLocaleString()}
                         </p>
                     </div>
-                    <Button
-                        onClick={handleRemoveSilence}
-                        variant="outline"
-                        disabled={anyBusy}
-                    >
-                        <VolumeX className="w-4 h-4 mr-2" />
-                        {isRemovingSilence ? "Processing..." : "Remove Silence"}
-                    </Button>
-                    {splitSegmentMinutes !== null &&
-                        recording.duration >
-                            splitSegmentMinutes * 60 * 1000 && (
-                            <div className="flex flex-col items-end gap-2">
-                                {splitConflict !== null && (
-                                    <div className="flex items-center gap-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
-                                        <span className="text-destructive">
-                                            {splitConflict === 1
-                                                ? "1 existing segment"
-                                                : `${splitConflict} existing segments`}{" "}
-                                            will be deleted. Continue?
-                                        </span>
-                                        <Button
-                                            onClick={() =>
-                                                setSplitConflict(null)
-                                            }
-                                            variant="outline"
-                                            size="sm"
-                                        >
-                                            Cancel
-                                        </Button>
-                                        <Button
-                                            onClick={handleSplitForce}
-                                            variant="destructive"
-                                            size="sm"
-                                            disabled={anyBusy}
-                                        >
-                                            {isSplitting
-                                                ? "Splitting..."
-                                                : "Delete & Re-split"}
-                                        </Button>
-                                    </div>
-                                )}
-                                <Button
-                                    onClick={handleSplit}
-                                    variant="outline"
-                                    disabled={anyBusy}
-                                >
-                                    <Scissors className="w-4 h-4 mr-2" />
-                                    {isSplitting
-                                        ? "Splitting..."
-                                        : "Split Recording"}
-                                </Button>
-                            </div>
-                        )}
+                    {!recording.plaudFileId.startsWith("silence-removed-") && (
+                        <Button
+                            onClick={handleRemoveSilence}
+                            variant="outline"
+                            disabled={isRemovingSilence}
+                        >
+                            <VolumeX className="w-4 h-4 mr-2" />
+                            {isRemovingSilence
+                                ? "Processing..."
+                                : "Remove Silence"}
+                        </Button>
+                    )}
+                    {recording.duration > splitSegmentMinutes * 60 * 1000 && (
+                        <div className="flex flex-col items-end gap-2">
+                            {splitConflict !== null && (
+                                <div className="flex items-center gap-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
+                                    <span className="text-destructive">
+                                        {splitConflict === 1
+                                            ? "1 existing segment"
+                                            : `${splitConflict} existing segments`}{" "}
+                                        will be deleted. Continue?
+                                    </span>
+                                    <Button
+                                        onClick={() => setSplitConflict(null)}
+                                        variant="outline"
+                                        size="sm"
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        onClick={handleSplitForce}
+                                        variant="destructive"
+                                        size="sm"
+                                        disabled={isSplitting}
+                                    >
+                                        {isSplitting
+                                            ? "Splitting..."
+                                            : "Delete & Re-split"}
+                                    </Button>
+                                </div>
+                            )}
+                            <Button
+                                onClick={handleSplit}
+                                variant="outline"
+                                disabled={isSplitting}
+                            >
+                                <Scissors className="w-4 h-4 mr-2" />
+                                {isSplitting
+                                    ? "Splitting..."
+                                    : "Split Recording"}
+                            </Button>
+                        </div>
+                    )}
                     {(recording.plaudFileId.startsWith("split-") ||
                         recording.plaudFileId.startsWith(
                             "silence-removed-",
@@ -282,7 +420,7 @@ export function RecordingWorkstation({
                         <Button
                             onClick={handleDelete}
                             variant="outline"
-                            disabled={anyBusy}
+                            disabled={isDeleting}
                             className="text-destructive hover:text-destructive"
                         >
                             <Trash2 className="w-4 h-4 mr-2" />
@@ -301,6 +439,8 @@ export function RecordingWorkstation({
                         onTranscribe={handleTranscribe}
                         isDeletingTranscription={isDeletingTranscription}
                         onDeleteTranscription={handleDeleteTranscription}
+                        isGeneratingTitle={isGeneratingTitle}
+                        onGenerateTitle={handleGenerateTitle}
                         disabled={anyBusy}
                     />
 

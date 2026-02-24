@@ -10,6 +10,7 @@ export type RecordingQueryResult = Pick<
     | "filesize"
     | "deviceSn"
     | "plaudFileId"
+    | "filenameModified"
 >;
 
 export type Recording = Omit<RecordingQueryResult, "startTime"> & {

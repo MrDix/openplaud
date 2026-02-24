@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Languages, Sparkles, Trash2 } from "lucide-react";
+import { FileText, Languages, Sparkles, Tag, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Recording } from "@/types/recording";
@@ -17,6 +17,8 @@ interface TranscriptionPanelProps {
     onTranscribe: () => void;
     isDeletingTranscription?: boolean;
     onDeleteTranscription?: () => void;
+    isGeneratingTitle?: boolean;
+    onGenerateTitle?: () => void;
     /** When true, disables all action buttons to prevent concurrent mutations */
     disabled?: boolean;
 }
@@ -28,6 +30,8 @@ export function TranscriptionPanel({
     onTranscribe,
     isDeletingTranscription,
     onDeleteTranscription,
+    isGeneratingTitle,
+    onGenerateTitle,
     disabled,
 }: TranscriptionPanelProps) {
     return (
@@ -38,23 +42,38 @@ export function TranscriptionPanel({
                         <FileText className="w-5 h-5" />
                         Transcription
                     </CardTitle>
-                    {transcription?.text && onDeleteTranscription ? (
-                        <Button
-                            onClick={onDeleteTranscription}
-                            variant="outline"
-                            size="sm"
-                            disabled={
-                                isDeletingTranscription ||
-                                isTranscribing ||
-                                disabled
-                            }
-                            className="text-destructive hover:text-destructive"
-                        >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            {isDeletingTranscription
-                                ? "Removing..."
-                                : "Remove Transcription"}
-                        </Button>
+                    {transcription?.text ? (
+                        <div className="flex items-center gap-2">
+                            {onGenerateTitle && (
+                                <Button
+                                    onClick={onGenerateTitle}
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={isGeneratingTitle || disabled}
+                                >
+                                    <Tag className="w-4 h-4 mr-2" />
+                                    {isGeneratingTitle
+                                        ? "Generating..."
+                                        : "Generate Title"}
+                                </Button>
+                            )}
+                            {onDeleteTranscription && (
+                                <Button
+                                    onClick={onDeleteTranscription}
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={
+                                        isDeletingTranscription || disabled
+                                    }
+                                    className="text-destructive hover:text-destructive"
+                                >
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    {isDeletingTranscription
+                                        ? "Removing..."
+                                        : "Remove Transcription"}
+                                </Button>
+                            )}
+                        </div>
                     ) : !isTranscribing ? (
                         <Button
                             onClick={onTranscribe}
@@ -62,9 +81,7 @@ export function TranscriptionPanel({
                             disabled={disabled}
                         >
                             <Sparkles className="w-4 h-4 mr-2" />
-                            {transcription?.text
-                                ? "Re-Transcribe"
-                                : "Transcribe"}
+                            Transcribe
                         </Button>
                     ) : null}
                 </div>

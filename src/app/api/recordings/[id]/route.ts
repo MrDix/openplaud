@@ -123,7 +123,7 @@ export async function PATCH(
 
         await db
             .update(recordings)
-            .set({ filename, updatedAt: new Date() })
+            .set({ filename, filenameModified: true, updatedAt: new Date() })
             .where(
                 and(
                     eq(recordings.id, id),

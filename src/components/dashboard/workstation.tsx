@@ -46,6 +46,11 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [isDeletingTranscription, setIsDeletingTranscription] =
         useState(false);
+    const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
+    const [isEditingTitle, setIsEditingTitle] = useState(false);
+    const [editTitleValue, setEditTitleValue] = useState("");
+    const [isSavingTitle, setIsSavingTitle] = useState(false);
+    const [isSyncingToPlaud, setIsSyncingToPlaud] = useState(false);
     const [isSplitting, setIsSplitting] = useState(false);
     const [splitConflict, setSplitConflict] = useState<number | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
@@ -84,7 +89,10 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
         isDeleting ||
         isRemovingSilence ||
         isTranscribing ||
-        isDeletingTranscription;
+        isDeletingTranscription ||
+        isGeneratingTitle ||
+        isSavingTitle ||
+        isSyncingToPlaud;
 
     // Keep currentRecording in sync with the recordings prop (updated after router.refresh()).
     // If the previously-selected recording is no longer present (e.g. just deleted),
@@ -209,12 +217,6 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
 
     const handleDeleteTranscription = useCallback(async () => {
         if (!currentRecording) return;
-        if (
-            !window.confirm(
-                "Remove the transcription? Re-transcribing costs API credits.",
-            )
-        )
-            return;
 
         setIsDeletingTranscription(true);
         try {
@@ -234,6 +236,88 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
             toast.error("Failed to remove transcription");
         } finally {
             setIsDeletingTranscription(false);
+        }
+    }, [currentRecording, router]);
+
+    const handleGenerateTitle = useCallback(async () => {
+        if (!currentRecording) return;
+
+        setIsGeneratingTitle(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${currentRecording.id}/generate-title`,
+                { method: "POST" },
+            );
+
+            if (response.ok) {
+                const data = await response.json();
+                toast.success(`Title generated: "${data.title}"`);
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to generate title");
+            }
+        } catch {
+            toast.error("Failed to generate title");
+        } finally {
+            setIsGeneratingTitle(false);
+        }
+    }, [currentRecording, router]);
+
+    const handleSaveTitle = useCallback(async () => {
+        if (!currentRecording) return;
+        const trimmed = editTitleValue.trim();
+        if (!trimmed || trimmed === currentRecording.filename) {
+            setIsEditingTitle(false);
+            return;
+        }
+
+        setIsSavingTitle(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${currentRecording.id}`,
+                {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ filename: trimmed }),
+                },
+            );
+
+            if (response.ok) {
+                setIsEditingTitle(false);
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to save title");
+            }
+        } catch {
+            toast.error("Failed to save title");
+        } finally {
+            setIsSavingTitle(false);
+        }
+    }, [currentRecording, editTitleValue, router]);
+
+    const handleSyncToPlaud = useCallback(async () => {
+        if (!currentRecording) return;
+
+        setIsSyncingToPlaud(true);
+        try {
+            const response = await fetch(
+                `/api/recordings/${currentRecording.id}/sync-title`,
+                { method: "POST" },
+            );
+
+            if (response.ok) {
+                toast.success("Title synced to Plaud");
+                router.refresh();
+            } else {
+                const error = await response.json();
+                toast.error(error.error || "Failed to sync title");
+            }
+        } catch {
+            toast.error("Failed to sync title");
+        } finally {
+            setIsSyncingToPlaud(false);
         }
     }, [currentRecording, router]);
 
@@ -419,6 +503,7 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                     currentRecording={currentRecording}
                                     onSelect={(r) => {
                                         setSplitConflict(null);
+                                        setIsEditingTitle(false);
                                         setCurrentRecording(r);
                                     }}
                                 />
@@ -463,19 +548,23 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                                 </div>
                                             )}
                                             <div className="flex justify-end gap-2 flex-wrap">
-                                                <Button
-                                                    onClick={
-                                                        handleRemoveSilence
-                                                    }
-                                                    variant="outline"
-                                                    size="sm"
-                                                    disabled={isProcessing}
-                                                >
-                                                    <VolumeX className="w-4 h-4 mr-2" />
-                                                    {isRemovingSilence
-                                                        ? "Processing..."
-                                                        : "Remove Silence"}
-                                                </Button>
+                                                {!currentRecording.plaudFileId.startsWith(
+                                                    "silence-removed-",
+                                                ) && (
+                                                    <Button
+                                                        onClick={
+                                                            handleRemoveSilence
+                                                        }
+                                                        variant="outline"
+                                                        size="sm"
+                                                        disabled={isProcessing}
+                                                    >
+                                                        <VolumeX className="w-4 h-4 mr-2" />
+                                                        {isRemovingSilence
+                                                            ? "Processing..."
+                                                            : "Remove Silence"}
+                                                    </Button>
+                                                )}
                                                 {currentRecording.duration >
                                                     splitSegmentMinutes *
                                                         60 *
@@ -515,6 +604,24 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                         </div>
                                         <RecordingPlayer
                                             recording={currentRecording}
+                                            onEditTitle={() => {
+                                                setEditTitleValue(
+                                                    currentRecording.filename,
+                                                );
+                                                setIsEditingTitle(true);
+                                            }}
+                                            isEditingTitle={isEditingTitle}
+                                            editTitleValue={editTitleValue}
+                                            onEditTitleChange={
+                                                setEditTitleValue
+                                            }
+                                            onSaveTitle={handleSaveTitle}
+                                            onCancelEdit={() =>
+                                                setIsEditingTitle(false)
+                                            }
+                                            isSavingTitle={isSavingTitle}
+                                            onSyncToPlaud={handleSyncToPlaud}
+                                            isSyncingToPlaud={isSyncingToPlaud}
                                             onEnded={() => {
                                                 const currentIndex =
                                                     recordings.findIndex(
@@ -527,6 +634,8 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                                     currentIndex <
                                                         recordings.length - 1
                                                 ) {
+                                                    setIsEditingTitle(false);
+                                                    setSplitConflict(null);
                                                     setCurrentRecording(
                                                         recordings[
                                                             currentIndex + 1
@@ -545,6 +654,12 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                             }
                                             onDeleteTranscription={
                                                 handleDeleteTranscription
+                                            }
+                                            isGeneratingTitle={
+                                                isGeneratingTitle
+                                            }
+                                            onGenerateTitle={
+                                                handleGenerateTitle
                                             }
                                             disabled={isProcessing}
                                         />
