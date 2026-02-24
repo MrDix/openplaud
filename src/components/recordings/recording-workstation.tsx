@@ -16,6 +16,7 @@ import { TranscriptionPanel } from "@/components/dashboard/transcription-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { isPlaudLocallyCreated } from "@/lib/plaud/sync-title";
 import type { Recording } from "@/types/recording";
 
 interface Transcription {
@@ -53,7 +54,6 @@ export function RecordingWorkstation({
         isTranscribing ||
         isDeletingTranscription ||
         isGeneratingTitle ||
-        isEditingTitle ||
         isSavingTitle ||
         isSyncingToPlaud ||
         isSplitting ||
@@ -165,11 +165,9 @@ export function RecordingWorkstation({
             } else {
                 const error = await response.json();
                 toast.error(error.error || "Failed to save title");
-                setIsEditingTitle(false);
             }
         } catch {
             toast.error("Failed to save title");
-            setIsEditingTitle(false);
         } finally {
             setIsSavingTitle(false);
         }
@@ -185,7 +183,6 @@ export function RecordingWorkstation({
 
             if (response.ok) {
                 toast.success("Title synced to Plaud");
-                router.refresh();
             } else {
                 const error = await response.json();
                 toast.error(error.error || "Failed to sync title");
@@ -195,7 +192,7 @@ export function RecordingWorkstation({
         } finally {
             setIsSyncingToPlaud(false);
         }
-    }, [recording.id, router]);
+    }, [recording.id]);
 
     const runSplit = useCallback(
         async (force: boolean) => {
@@ -231,8 +228,6 @@ export function RecordingWorkstation({
     const handleSplitForce = useCallback(() => runSplit(true), [runSplit]);
 
     const handleDelete = useCallback(async () => {
-        if (!window.confirm("Are you sure you want to delete this recording?"))
-            return;
         setIsDeleting(true);
         try {
             const response = await fetch(`/api/recordings/${recording.id}`, {
@@ -339,10 +334,7 @@ export function RecordingWorkstation({
                                     <Pencil className="w-4 h-4" />
                                 </Button>
                             )}
-                            {!recording.plaudFileId.startsWith("split-") &&
-                                !recording.plaudFileId.startsWith(
-                                    "silence-removed-",
-                                ) &&
+                            {!isPlaudLocallyCreated(recording.plaudFileId) &&
                                 recording.filenameModified && (
                                     <Button
                                         variant="ghost"
@@ -360,18 +352,14 @@ export function RecordingWorkstation({
                             {new Date(recording.startTime).toLocaleString()}
                         </p>
                     </div>
-                    {!recording.plaudFileId.startsWith("silence-removed-") && (
-                        <Button
-                            onClick={handleRemoveSilence}
-                            variant="outline"
-                            disabled={isRemovingSilence}
-                        >
-                            <VolumeX className="w-4 h-4 mr-2" />
-                            {isRemovingSilence
-                                ? "Processing..."
-                                : "Remove Silence"}
-                        </Button>
-                    )}
+                    <Button
+                        onClick={handleRemoveSilence}
+                        variant="outline"
+                        disabled={isRemovingSilence}
+                    >
+                        <VolumeX className="w-4 h-4 mr-2" />
+                        {isRemovingSilence ? "Processing..." : "Remove Silence"}
+                    </Button>
                     {recording.duration > splitSegmentMinutes * 60 * 1000 && (
                         <div className="flex flex-col items-end gap-2">
                             {splitConflict !== null && (
@@ -413,10 +401,7 @@ export function RecordingWorkstation({
                             </Button>
                         </div>
                     )}
-                    {(recording.plaudFileId.startsWith("split-") ||
-                        recording.plaudFileId.startsWith(
-                            "silence-removed-",
-                        )) && (
+                    {isPlaudLocallyCreated(recording.plaudFileId) && (
                         <Button
                             onClick={handleDelete}
                             variant="outline"
@@ -441,7 +426,6 @@ export function RecordingWorkstation({
                         onDeleteTranscription={handleDeleteTranscription}
                         isGeneratingTitle={isGeneratingTitle}
                         onGenerateTitle={handleGenerateTitle}
-                        disabled={anyBusy}
                     />
 
                     {/* Metadata */}

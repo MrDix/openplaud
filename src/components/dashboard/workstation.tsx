@@ -6,10 +6,11 @@ import {
     Scissors,
     Settings,
     Trash2,
+    Upload,
     VolumeX,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { OnboardingDialog } from "@/components/onboarding-dialog";
 import { SettingsDialog } from "@/components/settings-dialog";
@@ -55,6 +56,8 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
     const [splitConflict, setSplitConflict] = useState<number | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [isRemovingSilence, setIsRemovingSilence] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
+    const uploadInputRef = useRef<HTMLInputElement>(null);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [onboardingOpen, setOnboardingOpen] = useState(false);
     const [providers, setProviders] = useState<
@@ -90,6 +93,7 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
         isRemovingSilence ||
         isTranscribing ||
         isDeletingTranscription ||
+        isUploading ||
         isGeneratingTitle ||
         isSavingTitle ||
         isSyncingToPlaud;
@@ -309,7 +313,6 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
 
             if (response.ok) {
                 toast.success("Title synced to Plaud");
-                router.refresh();
             } else {
                 const error = await response.json();
                 toast.error(error.error || "Failed to sync title");
@@ -319,7 +322,40 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
         } finally {
             setIsSyncingToPlaud(false);
         }
-    }, [currentRecording, router]);
+    }, [currentRecording]);
+
+    const handleUpload = useCallback(
+        async (e: React.ChangeEvent<HTMLInputElement>) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            e.target.value = "";
+
+            setIsUploading(true);
+            try {
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const response = await fetch("/api/recordings/upload", {
+                    method: "POST",
+                    body: formData,
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    toast.success(`"${data.filename}" uploaded`);
+                    router.refresh();
+                } else {
+                    const error = await response.json();
+                    toast.error(error.error || "Upload failed");
+                }
+            } catch {
+                toast.error("Failed to upload recording");
+            } finally {
+                setIsUploading(false);
+            }
+        },
+        [router],
+    );
 
     const runSplit = useCallback(
         async (force: boolean) => {
@@ -358,15 +394,6 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
 
     const handleDelete = useCallback(async () => {
         if (!currentRecording) return;
-
-        // Confirm before irreversibly deleting
-        if (
-            !window.confirm(
-                `Are you sure you want to delete "${currentRecording.filename}"? This cannot be undone.`,
-            )
-        ) {
-            return;
-        }
 
         setIsDeleting(true);
         try {
@@ -456,6 +483,23 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                     </>
                                 )}
                             </Button>
+                            <input
+                                ref={uploadInputRef}
+                                type="file"
+                                accept="audio/*"
+                                className="hidden"
+                                onChange={handleUpload}
+                            />
+                            <Button
+                                onClick={() => uploadInputRef.current?.click()}
+                                disabled={isProcessing}
+                                variant="outline"
+                                size="sm"
+                                className="h-9"
+                            >
+                                <Upload className="w-4 h-4 mr-2" />
+                                {isUploading ? "Uploading..." : "Upload Audio"}
+                            </Button>
                             <Button
                                 onClick={() => setSettingsOpen(true)}
                                 variant="outline"
@@ -503,8 +547,9 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                     currentRecording={currentRecording}
                                     onSelect={(r) => {
                                         setSplitConflict(null);
-                                        setIsEditingTitle(false);
                                         setCurrentRecording(r);
+                                        setIsEditingTitle(false);
+                                        setEditTitleValue("");
                                     }}
                                 />
                             </div>
@@ -548,23 +593,19 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                                 </div>
                                             )}
                                             <div className="flex justify-end gap-2 flex-wrap">
-                                                {!currentRecording.plaudFileId.startsWith(
-                                                    "silence-removed-",
-                                                ) && (
-                                                    <Button
-                                                        onClick={
-                                                            handleRemoveSilence
-                                                        }
-                                                        variant="outline"
-                                                        size="sm"
-                                                        disabled={isProcessing}
-                                                    >
-                                                        <VolumeX className="w-4 h-4 mr-2" />
-                                                        {isRemovingSilence
-                                                            ? "Processing..."
-                                                            : "Remove Silence"}
-                                                    </Button>
-                                                )}
+                                                <Button
+                                                    onClick={
+                                                        handleRemoveSilence
+                                                    }
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={isProcessing}
+                                                >
+                                                    <VolumeX className="w-4 h-4 mr-2" />
+                                                    {isRemovingSilence
+                                                        ? "Processing..."
+                                                        : "Remove Silence"}
+                                                </Button>
                                                 {currentRecording.duration >
                                                     splitSegmentMinutes *
                                                         60 *
@@ -586,6 +627,9 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                                 ) ||
                                                     currentRecording.plaudFileId.startsWith(
                                                         "silence-removed-",
+                                                    ) ||
+                                                    currentRecording.plaudFileId.startsWith(
+                                                        "uploaded-",
                                                     )) && (
                                                     <Button
                                                         onClick={handleDelete}
@@ -634,8 +678,6 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                                     currentIndex <
                                                         recordings.length - 1
                                                 ) {
-                                                    setIsEditingTitle(false);
-                                                    setSplitConflict(null);
                                                     setCurrentRecording(
                                                         recordings[
                                                             currentIndex + 1
@@ -661,7 +703,6 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                             onGenerateTitle={
                                                 handleGenerateTitle
                                             }
-                                            disabled={isProcessing}
                                         />
                                     </>
                                 ) : (

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
+import { isPlaudLocallyCreated } from "@/lib/plaud/sync-title";
 import type { Recording } from "@/types/recording";
 
 interface RecordingPlayerProps {
@@ -299,8 +300,7 @@ export function RecordingPlayer({
                         </Button>
                     )}
                     {onSyncToPlaud &&
-                        !recording.plaudFileId.startsWith("split-") &&
-                        !recording.plaudFileId.startsWith("silence-removed-") &&
+                        !isPlaudLocallyCreated(recording.plaudFileId) &&
                         recording.filenameModified && (
                             <Button
                                 variant="ghost"

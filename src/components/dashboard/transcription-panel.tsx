@@ -19,8 +19,6 @@ interface TranscriptionPanelProps {
     onDeleteTranscription?: () => void;
     isGeneratingTitle?: boolean;
     onGenerateTitle?: () => void;
-    /** When true, disables all action buttons to prevent concurrent mutations */
-    disabled?: boolean;
 }
 
 export function TranscriptionPanel({
@@ -32,7 +30,6 @@ export function TranscriptionPanel({
     onDeleteTranscription,
     isGeneratingTitle,
     onGenerateTitle,
-    disabled,
 }: TranscriptionPanelProps) {
     return (
         <Card>
@@ -44,42 +41,40 @@ export function TranscriptionPanel({
                     </CardTitle>
                     {transcription?.text ? (
                         <div className="flex items-center gap-2">
-                            {onGenerateTitle && (
-                                <Button
-                                    onClick={onGenerateTitle}
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={isGeneratingTitle || disabled}
-                                >
-                                    <Tag className="w-4 h-4 mr-2" />
-                                    {isGeneratingTitle
-                                        ? "Generating..."
-                                        : "Generate Title"}
-                                </Button>
-                            )}
-                            {onDeleteTranscription && (
-                                <Button
-                                    onClick={onDeleteTranscription}
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={
-                                        isDeletingTranscription || disabled
-                                    }
-                                    className="text-destructive hover:text-destructive"
-                                >
-                                    <Trash2 className="w-4 h-4 mr-2" />
-                                    {isDeletingTranscription
-                                        ? "Removing..."
-                                        : "Remove Transcription"}
-                                </Button>
-                            )}
+                            <Button
+                                onClick={onGenerateTitle}
+                                variant="outline"
+                                size="sm"
+                                disabled={
+                                    isGeneratingTitle ||
+                                    isDeletingTranscription ||
+                                    isTranscribing
+                                }
+                            >
+                                <Tag className="w-4 h-4 mr-2" />
+                                {isGeneratingTitle
+                                    ? "Generating..."
+                                    : "Generate Title"}
+                            </Button>
+                            <Button
+                                onClick={onDeleteTranscription}
+                                variant="outline"
+                                size="sm"
+                                disabled={
+                                    isDeletingTranscription ||
+                                    isGeneratingTitle ||
+                                    isTranscribing
+                                }
+                                className="text-destructive hover:text-destructive"
+                            >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                {isDeletingTranscription
+                                    ? "Removing..."
+                                    : "Remove Transcription"}
+                            </Button>
                         </div>
                     ) : !isTranscribing ? (
-                        <Button
-                            onClick={onTranscribe}
-                            size="sm"
-                            disabled={disabled}
-                        >
+                        <Button onClick={onTranscribe} size="sm">
                             <Sparkles className="w-4 h-4 mr-2" />
                             Transcribe
                         </Button>
@@ -125,7 +120,7 @@ export function TranscriptionPanel({
                         <Button
                             onClick={onTranscribe}
                             size="sm"
-                            disabled={disabled}
+                            disabled={isTranscribing || isDeletingTranscription}
                         >
                             <Sparkles className="w-4 h-4 mr-2" />
                             Generate Transcription
