@@ -262,28 +262,27 @@ export async function POST(
             // and concurrent force=true requests cannot interleave their writes.
             let newRecordingIds: string[];
             try {
-                newRecordingIds = await (async () =>
-                    await db.transaction(async (tx) => {
-                        if (existingSplits.length > 0 && force) {
-                            await tx
-                                .delete(recordings)
-                                .where(
-                                    and(
-                                        eq(recordings.userId, session.user.id),
-                                        like(
-                                            recordings.plaudFileId,
-                                            `split-${escapedPlaudFileId}-part%`,
-                                        ),
+                newRecordingIds = await db.transaction(async (tx) => {
+                    if (existingSplits.length > 0 && force) {
+                        await tx
+                            .delete(recordings)
+                            .where(
+                                and(
+                                    eq(recordings.userId, session.user.id),
+                                    like(
+                                        recordings.plaudFileId,
+                                        `split-${escapedPlaudFileId}-part%`,
                                     ),
-                                );
-                        }
+                                ),
+                            );
+                    }
 
-                        const inserted = await tx
-                            .insert(recordings)
-                            .values(segmentRows)
-                            .returning({ id: recordings.id });
-                        return inserted.map((r) => r.id);
-                    })());
+                    const inserted = await tx
+                        .insert(recordings)
+                        .values(segmentRows)
+                        .returning({ id: recordings.id });
+                    return inserted.map((r) => r.id);
+                });
             } catch (txErr) {
                 // DB transaction failed — clean up all uploaded storage files
                 for (const p of segmentRows.map((r) => r.storagePath)) {
