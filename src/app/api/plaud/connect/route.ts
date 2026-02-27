@@ -4,8 +4,12 @@ import { db } from "@/db";
 import { plaudConnections, plaudDevices } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { encrypt } from "@/lib/encryption";
-import { DEFAULT_PLAUD_API_BASE, PlaudClient } from "@/lib/plaud/client";
-import { ALLOWED_PLAUD_HOSTS } from "@/lib/plaud/constants";
+import { PlaudClient } from "@/lib/plaud/client";
+import {
+    DEFAULT_SERVER_KEY,
+    PLAUD_SERVERS,
+    type PlaudServerKey,
+} from "@/lib/plaud/servers";
 
 export async function POST(request: Request) {
     try {
@@ -20,7 +24,7 @@ export async function POST(request: Request) {
             );
         }
 
-        const { bearerToken, apiBase: rawApiBase } = await request.json();
+        const { bearerToken, server: serverKey } = await request.json();
 
         if (!bearerToken) {
             return NextResponse.json(
@@ -29,26 +33,15 @@ export async function POST(request: Request) {
             );
         }
 
-        // Validate apiBase: must be a well-formed HTTPS URL on an allowed domain.
-        let apiBase: string = DEFAULT_PLAUD_API_BASE;
-        if (rawApiBase != null) {
-            let parsed: URL;
-            try {
-                parsed = new URL(rawApiBase);
-            } catch {
-                return NextResponse.json(
-                    { error: "Invalid apiBase URL" },
-                    { status: 400 },
-                );
-            }
-            if (parsed.protocol !== "https:" || !ALLOWED_PLAUD_HOSTS.has(parsed.hostname)) {
-                return NextResponse.json(
-                    { error: "apiBase must be an HTTPS URL on an allowed Plaud domain" },
-                    { status: 400 },
-                );
-            }
-            apiBase = parsed.origin;
+        const resolvedKey = (serverKey ?? DEFAULT_SERVER_KEY) as string;
+        if (!Object.hasOwn(PLAUD_SERVERS, resolvedKey)) {
+            return NextResponse.json(
+                { error: `Unknown server: ${resolvedKey}` },
+                { status: 400 },
+            );
         }
+
+        const apiBase = PLAUD_SERVERS[resolvedKey as PlaudServerKey].apiBase;
         const client = new PlaudClient(bearerToken, apiBase);
         const isValid = await client.testConnection();
 
@@ -72,7 +65,11 @@ export async function POST(request: Request) {
         if (existingConnection) {
             await db
                 .update(plaudConnections)
-                .set({ bearerToken: encryptedToken, apiBase, updatedAt: new Date() })
+                .set({
+                    bearerToken: encryptedToken,
+                    apiBase,
+                    updatedAt: new Date(),
+                })
                 .where(eq(plaudConnections.id, existingConnection.id));
         } else {
             await db.insert(plaudConnections).values({
