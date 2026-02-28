@@ -47,10 +47,17 @@ export async function trimTrailingSilence(
                 { stdio: "ignore" },
             );
 
+            // Scale timeout with file size: the double-reverse technique
+            // must decode the entire audio twice, which takes ~2 s/MB.
+            // Minimum 30 s; maximum 10 min to avoid hanging indefinitely.
+            const timeoutMs = Math.min(
+                600_000,
+                Math.max(30_000, (audioBuffer.length / 1_000_000) * 2_000),
+            );
             const timeout = setTimeout(() => {
                 proc.kill();
                 reject(new Error("ffmpeg timeout"));
-            }, 30_000);
+            }, timeoutMs);
 
             proc.on("close", (code) => {
                 clearTimeout(timeout);
