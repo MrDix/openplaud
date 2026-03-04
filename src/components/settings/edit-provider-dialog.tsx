@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw, Shield } from "lucide-react";
+import { Info, RefreshCw, Shield } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { MetalButton } from "@/components/metal-button";
@@ -29,6 +29,7 @@ interface Provider {
     defaultModel: string | null;
     isDefaultTranscription: boolean;
     isDefaultEnhancement: boolean;
+    streamingEnabled?: boolean;
 }
 
 interface EditProviderDialogProps {
@@ -114,18 +115,17 @@ export function EditProviderDialog({
     const [isDefaultTranscription, setIsDefaultTranscription] = useState(false);
     const [isDefaultEnhancement, setIsDefaultEnhancement] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [streamingEnabled, setStreamingEnabled] = useState(true);
     const [speachesModels, setSpeachesModels] = useState<SpeachesModel[]>([]);
     const [isLoadingModels, setIsLoadingModels] = useState(false);
     const [showModelManager, setShowModelManager] = useState(false);
 
     const isSpeaches = providerName === "Speaches";
 
-    const fetchSpeachesModels = async (url: string) => {
+    const fetchSpeachesModels = async () => {
         setIsLoadingModels(true);
         try {
-            const res = await fetch(
-                `/api/speaches/models?baseUrl=${encodeURIComponent(url)}`,
-            );
+            const res = await fetch("/api/speaches/models");
             if (!res.ok) throw new Error("Failed to fetch");
             const data = await res.json();
             const models: SpeachesModel[] = data.data || [];
@@ -137,11 +137,13 @@ export function EditProviderDialog({
             });
         } catch {
             setSpeachesModels([]);
+            toast.error("Failed to load Speaches models");
         } finally {
             setIsLoadingModels(false);
         }
     };
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: fetchSpeachesModels is intentionally omitted — it is a plain function recreated each render; adding it would cause infinite re-fetches
     useEffect(() => {
         if (open && provider) {
             setProviderName(provider.provider);
@@ -149,12 +151,11 @@ export function EditProviderDialog({
             setDefaultModel(provider.defaultModel || "");
             setIsDefaultTranscription(provider.isDefaultTranscription);
             setIsDefaultEnhancement(provider.isDefaultEnhancement);
+            setStreamingEnabled(provider.streamingEnabled !== false);
             setApiKey("");
 
             if (provider.provider === "Speaches") {
-                fetchSpeachesModels(
-                    provider.baseUrl || "http://localhost:8000/v1",
-                );
+                fetchSpeachesModels();
             }
         } else if (!open) {
             setProviderName("");
@@ -163,10 +164,10 @@ export function EditProviderDialog({
             setDefaultModel("");
             setIsDefaultTranscription(false);
             setIsDefaultEnhancement(false);
+            setStreamingEnabled(true);
             setSpeachesModels([]);
             setShowModelManager(false);
         }
-        // biome-ignore lint/correctness/useExhaustiveDependencies: fetchSpeachesModels is stable within render
     }, [open, provider]);
 
     const handleProviderChange = (value: string) => {
@@ -176,7 +177,7 @@ export function EditProviderDialog({
             setBaseUrl(preset.baseUrl);
             setDefaultModel(preset.defaultModel);
             if (value === "Speaches") {
-                fetchSpeachesModels(preset.baseUrl);
+                fetchSpeachesModels();
             }
         }
     };
@@ -201,12 +202,14 @@ export function EditProviderDialog({
                 defaultModel: string | null;
                 isDefaultTranscription: boolean;
                 isDefaultEnhancement: boolean;
+                streamingEnabled: boolean;
                 apiKey?: string;
             } = {
                 baseUrl: baseUrl || null,
                 defaultModel: defaultModel || null,
                 isDefaultTranscription,
                 isDefaultEnhancement,
+                streamingEnabled,
             };
 
             if (apiKey.trim()) {
@@ -296,6 +299,7 @@ export function EditProviderDialog({
                             <Input
                                 id="apiKey"
                                 type="password"
+                                autoComplete="new-password"
                                 placeholder={
                                     selectedPreset?.localProvider
                                         ? `Leave blank to keep current key`
@@ -324,10 +328,6 @@ export function EditProviderDialog({
                                 placeholder="https://api.example.com/v1"
                                 value={baseUrl}
                                 onChange={(e) => setBaseUrl(e.target.value)}
-                                onBlur={(e) => {
-                                    if (isSpeaches)
-                                        fetchSpeachesModels(e.target.value || "http://localhost:8000/v1");
-                                }}
                                 disabled={isLoading}
                                 className="font-mono text-sm"
                             />
@@ -352,47 +352,45 @@ export function EditProviderDialog({
                             </div>
                             {isSpeaches ? (
                                 <div className="flex gap-1">
-                                <Select
-                                    value={defaultModel}
-                                    onValueChange={setDefaultModel}
-                                    disabled={isLoading || isLoadingModels}
-                                >
-                                    <SelectTrigger className="font-mono text-sm">
-                                        <SelectValue
-                                            placeholder={
-                                                isLoadingModels
-                                                    ? "Loading models…"
-                                                    : speachesModels.length ===
-                                                        0
-                                                      ? "No models installed"
-                                                      : "Select a model"
-                                            }
+                                    <Select
+                                        value={defaultModel}
+                                        onValueChange={setDefaultModel}
+                                        disabled={isLoading || isLoadingModels}
+                                    >
+                                        <SelectTrigger className="font-mono text-sm">
+                                            <SelectValue
+                                                placeholder={
+                                                    isLoadingModels
+                                                        ? "Loading models…"
+                                                        : speachesModels.length ===
+                                                            0
+                                                          ? "No models installed"
+                                                          : "Select a model"
+                                                }
+                                            />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {speachesModels.map((m) => (
+                                                <SelectItem
+                                                    key={m.id}
+                                                    value={m.id}
+                                                >
+                                                    {m.id}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <button
+                                        type="button"
+                                        aria-label="Refresh model list"
+                                        disabled={isLoadingModels}
+                                        onClick={() => fetchSpeachesModels()}
+                                        className="shrink-0 flex items-center justify-center h-10 w-10 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+                                    >
+                                        <RefreshCw
+                                            className={`h-4 w-4 ${isLoadingModels ? "animate-spin" : ""}`}
                                         />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {speachesModels.map((m) => (
-                                            <SelectItem key={m.id} value={m.id}>
-                                                {m.id}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <button
-                                    type="button"
-                                    aria-label="Refresh model list"
-                                    disabled={isLoadingModels}
-                                    onClick={() =>
-                                        fetchSpeachesModels(
-                                            baseUrl ||
-                                                "http://localhost:8000/v1",
-                                        )
-                                    }
-                                    className="shrink-0 flex items-center justify-center h-10 w-10 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
-                                >
-                                    <RefreshCw
-                                        className={`h-4 w-4 ${isLoadingModels ? "animate-spin" : ""}`}
-                                    />
-                                </button>
+                                    </button>
                                 </div>
                             ) : (
                                 <Input
@@ -428,13 +426,81 @@ export function EditProviderDialog({
                                     type="checkbox"
                                     checked={isDefaultEnhancement}
                                     onChange={(e) =>
-                                        setIsDefaultEnhancement(e.target.checked)
+                                        setIsDefaultEnhancement(
+                                            e.target.checked,
+                                        )
                                     }
                                     disabled={isLoading}
                                 />
                                 <span>Use for AI enhancements</span>
                             </label>
+                            {isSpeaches && (
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={streamingEnabled}
+                                        onChange={(e) =>
+                                            setStreamingEnabled(
+                                                e.target.checked,
+                                            )
+                                        }
+                                        disabled={isLoading}
+                                    />
+                                    <span>
+                                        Enable streaming (live transcription
+                                        preview)
+                                    </span>
+                                </label>
+                            )}
                         </Panel>
+
+                        {isSpeaches && (
+                            <div className="flex gap-2.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                <div className="space-y-1">
+                                    <p className="font-medium">
+                                        Reduce hallucinations with Silero VAD
+                                    </p>
+                                    <p className="text-blue-700 dark:text-blue-400">
+                                        Installing{" "}
+                                        <code className="rounded bg-blue-100 px-1 dark:bg-blue-900">
+                                            silero-vad
+                                        </code>{" "}
+                                        in your Speaches container enables Voice
+                                        Activity Detection, which automatically
+                                        removes trailing silence and background
+                                        noise before transcription — preventing
+                                        Whisper hallucinations on quiet
+                                        recordings.
+                                    </p>
+                                    <p className="font-mono text-blue-700 dark:text-blue-400">
+                                        docker exec &lt;container&gt; pip
+                                        install silero-vad
+                                    </p>
+                                    <p className="text-blue-600 dark:text-blue-500">
+                                        OpenPlaud works without it — silero-vad
+                                        is used automatically when available.
+                                    </p>
+                                    <p className="font-medium mt-2">
+                                        Enable speaker detection (who said what)
+                                    </p>
+                                    <p className="text-blue-700 dark:text-blue-400">
+                                        Installing{" "}
+                                        <code className="rounded bg-blue-100 px-1 dark:bg-blue-900">
+                                            onnx-diarization
+                                        </code>{" "}
+                                        enables the "Generate with Speakers"
+                                        button, which identifies individual
+                                        speakers and shows colored speaker
+                                        blocks in the transcription.
+                                    </p>
+                                    <p className="font-mono text-blue-700 dark:text-blue-400">
+                                        docker exec &lt;container&gt; pip
+                                        install onnx-diarization
+                                    </p>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="flex gap-2">
                             <MetalButton
@@ -462,11 +528,7 @@ export function EditProviderDialog({
                     open={showModelManager}
                     onOpenChange={setShowModelManager}
                     baseUrl={baseUrl || "http://localhost:8000/v1"}
-                    onModelsChanged={() =>
-                        fetchSpeachesModels(
-                            baseUrl || "http://localhost:8000/v1",
-                        )
-                    }
+                    onModelsChanged={() => fetchSpeachesModels()}
                 />
             )}
         </>

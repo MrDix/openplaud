@@ -181,9 +181,13 @@ export const transcriptions = pgTable(
             .default("server"), // 'server' or 'browser'
         provider: varchar("provider", { length: 100 }).notNull(), // e.g., 'openai', 'groq', 'browser'
         model: varchar("model", { length: 100 }).notNull(), // e.g., 'whisper-1', 'whisper-large-v3-turbo', 'whisper-base'
+        // JSON array of DiarizedSegment — only set when transcription was done with speaker detection
+        speakersJson: text("speakers_json"),
         createdAt: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => ({
+        // Each recording has at most one transcription per user
+        recordingUserUnique: unique().on(table.recordingId, table.userId),
         // Index for looking up transcription by recording (most common query)
         recordingIdIdx: index("transcriptions_recording_id_idx").on(
             table.recordingId,
@@ -234,6 +238,8 @@ export const apiCredentials = pgTable("api_credentials", {
     isDefaultEnhancement: boolean("is_default_enhancement")
         .notNull()
         .default(false),
+    // Speaches only: stream transcription segments via SSE (default: true)
+    streamingEnabled: boolean("streaming_enabled").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -329,7 +335,9 @@ export const userSettings = pgTable("user_settings", {
     splitSegmentMinutes: integer("split_segment_minutes").notNull().default(60),
     // Silence removal settings
     silenceThresholdDb: integer("silence_threshold_db").notNull().default(-40), // dB, audio below this is silence
-    silenceDurationSeconds: real("silence_duration_seconds").notNull().default(1.0), // min silence length to remove
+    silenceDurationSeconds: real("silence_duration_seconds")
+        .notNull()
+        .default(1.0), // min silence length to remove
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

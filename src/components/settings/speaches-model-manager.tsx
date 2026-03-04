@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
+const normalizeModelId = (id: string) => id.toLowerCase().trim();
+
 interface SpeachesModel {
     id: string;
     object?: string;
@@ -45,13 +47,51 @@ export function SpeachesModelManager({
     const [installingId, setInstallingId] = useState<string | null>(null);
     const [removingId, setRemovingId] = useState<string | null>(null);
     const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Prevents duplicate success toasts when both the poll and the safety-net
+    // useEffect detect the model at the same time.
+    const installSuccessShownRef = useRef(false);
 
     // Clear poll on unmount
     useEffect(() => {
         return () => {
             if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            if (pollTimeoutRef.current) {
+                clearTimeout(pollTimeoutRef.current);
+                pollTimeoutRef.current = null;
+            }
         };
     }, []);
+
+    // Safety net: when the model being installed appears in installedModels,
+    // clear the flag regardless of whether the polling promise resolved.
+    // This handles edge cases where the ID comparison in the poll fails
+    // (e.g. Speaches returns a slightly different ID format than the registry).
+    // biome-ignore lint/correctness/useExhaustiveDependencies: only react when installedModels changes
+    useEffect(() => {
+        if (
+            installingId !== null &&
+            installedModels.some(
+                (m) =>
+                    normalizeModelId(m.id) === normalizeModelId(installingId),
+            )
+        ) {
+            if (!installSuccessShownRef.current) {
+                toast.success(`Model installed: ${installingId}`);
+                installSuccessShownRef.current = true;
+            }
+            if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+            }
+            if (pollTimeoutRef.current) {
+                clearTimeout(pollTimeoutRef.current);
+                pollTimeoutRef.current = null;
+            }
+            setInstallingId(null);
+            onModelsChanged();
+        }
+    }, [installedModels]);
 
     const fetchInstalledSilent = async (): Promise<SpeachesModel[]> => {
         try {
@@ -91,13 +131,13 @@ export function SpeachesModelManager({
         }
     };
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: fetchInstalled and fetchRegistry are stable by intent — only re-run when open changes
     useEffect(() => {
         if (open) {
             fetchInstalled();
             fetchRegistry();
         }
-        // biome-ignore lint/correctness/useExhaustiveDependencies: fetch fns are stable within render
-    }, [open, baseUrl]);
+    }, [open]);
 
     // Always refresh the parent list when the dialog closes
     const handleOpenChange = (isOpen: boolean) => {
@@ -111,51 +151,69 @@ export function SpeachesModelManager({
     };
 
     const handleInstall = async (modelId: string) => {
+        installSuccessShownRef.current = false;
         setInstallingId(modelId);
 
-        // Polling promise: resolves as soon as the model appears in the
-        // installed list. This lets us clear the loading state immediately
-        // even if the POST connection is still open.
-        const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5-minute hard limit
-        const pollPromise = new Promise<void>((resolve, reject) => {
-            const pollTimeout = setTimeout(() => {
-                if (pollIntervalRef.current) {
-                    clearInterval(pollIntervalRef.current);
-                    pollIntervalRef.current = null;
-                }
-                reject(new Error("Model install timed out after 5 minutes"));
-            }, POLL_TIMEOUT_MS);
-            pollIntervalRef.current = setInterval(async () => {
-                const models = await fetchInstalledSilent();
-                setInstalledModels(models);
-                if (models.some((m) => m.id === modelId)) {
-                    clearInterval(pollIntervalRef.current!);
-                    pollIntervalRef.current = null;
-                    clearTimeout(pollTimeout);
-                    resolve();
-                }
-            }, 2500);
-        });
-
-        // POST promise: resolves when the server confirms the download.
-        const installPromise = fetch(
-            `/api/speaches/models?baseUrl=${encodeURIComponent(baseUrl)}`,
-            {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ modelId }),
-            },
-        ).then((res) => {
-            if (!res.ok) throw new Error("Failed to install");
-        });
+        // Poll every 2.5 s until the model appears in the installed list.
+        // The POST only queues the download on the Speaches side and returns
+        // immediately, so polling is the only reliable completion signal.
+        const POLL_TIMEOUT_MS = 30 * 60 * 1000; // 30-minute hard limit (large models can take a while)
 
         try {
-            // Whichever signal arrives first unblocks the UI.
-            // Suppress any later rejection from installPromise so it doesn't
-            // become an unhandled promise rejection when pollPromise wins first.
-            installPromise.catch(() => {});
-            await Promise.race([pollPromise, installPromise]);
-            toast.success(`Model installed: ${modelId}`);
+            // Trigger the download. Await only to catch immediate errors
+            // (e.g. network failure, 4xx). The response returns before the
+            // model is fully downloaded, so we rely on polling for completion.
+            const res = await fetch(
+                `/api/speaches/models?baseUrl=${encodeURIComponent(baseUrl)}`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ modelId }),
+                },
+            );
+            if (!res.ok) throw new Error("Failed to install");
+
+            // Start polling only after the POST succeeds to avoid unhandled
+            // promise rejections when the POST itself fails.
+            const pollPromise = new Promise<void>((resolve, reject) => {
+                pollTimeoutRef.current = setTimeout(() => {
+                    if (pollIntervalRef.current) {
+                        clearInterval(pollIntervalRef.current);
+                        pollIntervalRef.current = null;
+                    }
+                    pollTimeoutRef.current = null;
+                    reject(
+                        new Error("Model install timed out after 30 minutes"),
+                    );
+                }, POLL_TIMEOUT_MS);
+                pollIntervalRef.current = setInterval(async () => {
+                    const models = await fetchInstalledSilent();
+                    setInstalledModels(models);
+                    if (
+                        models.some(
+                            (m) =>
+                                normalizeModelId(m.id) ===
+                                normalizeModelId(modelId),
+                        )
+                    ) {
+                        if (pollIntervalRef.current)
+                            clearInterval(pollIntervalRef.current);
+                        pollIntervalRef.current = null;
+                        if (pollTimeoutRef.current) {
+                            clearTimeout(pollTimeoutRef.current);
+                            pollTimeoutRef.current = null;
+                        }
+                        resolve();
+                    }
+                }, 2500);
+            });
+
+            // Wait until polling confirms the model is installed.
+            await pollPromise;
+            if (!installSuccessShownRef.current) {
+                toast.success(`Model installed: ${modelId}`);
+                installSuccessShownRef.current = true;
+            }
             await fetchInstalled();
             onModelsChanged();
         } catch {
@@ -164,6 +222,10 @@ export function SpeachesModelManager({
             if (pollIntervalRef.current) {
                 clearInterval(pollIntervalRef.current);
                 pollIntervalRef.current = null;
+            }
+            if (pollTimeoutRef.current) {
+                clearTimeout(pollTimeoutRef.current);
+                pollTimeoutRef.current = null;
             }
             setInstallingId(null);
         }
@@ -187,9 +249,11 @@ export function SpeachesModelManager({
         }
     };
 
-    const installedIds = new Set(installedModels.map((m) => m.id));
+    const installedIds = new Set(
+        installedModels.map((m) => normalizeModelId(m.id)),
+    );
     const availableToInstall = registryModels.filter(
-        (m) => !installedIds.has(m.id),
+        (m) => !installedIds.has(normalizeModelId(m.id)),
     );
 
     return (
@@ -202,7 +266,9 @@ export function SpeachesModelManager({
                 <div className="flex-1 overflow-y-auto space-y-6 py-2">
                     {/* Installed models */}
                     <div className="space-y-2">
-                        <h3 className="text-sm font-medium">Installed Models</h3>
+                        <h3 className="text-sm font-medium">
+                            Installed Models
+                        </h3>
                         {isLoadingInstalled ? (
                             <p className="text-sm text-muted-foreground">
                                 Loading…
@@ -259,11 +325,18 @@ export function SpeachesModelManager({
                             <div className="space-y-1">
                                 {availableToInstall.map((model) => {
                                     const isInstalling =
-                                        installingId === model.id;
+                                        installingId !== null &&
+                                        normalizeModelId(installingId) ===
+                                            normalizeModelId(model.id);
                                     return (
                                         <div
                                             key={model.id}
-                                            className={cn("flex items-center justify-between gap-2 py-1.5 px-3 rounded-md border", isInstalling ? "border-primary/40 bg-primary/5" : "bg-card")}
+                                            className={cn(
+                                                "flex items-center justify-between gap-2 py-1.5 px-3 rounded-md border",
+                                                isInstalling
+                                                    ? "border-primary/40 bg-primary/5"
+                                                    : "bg-card",
+                                            )}
                                         >
                                             <span
                                                 className={`font-mono text-xs truncate ${isInstalling ? "text-muted-foreground" : ""}`}

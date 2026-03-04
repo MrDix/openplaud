@@ -1,6 +1,14 @@
 "use client";
 
-import { Mic, RefreshCw, Scissors, Settings, Trash2, Upload, VolumeX } from "lucide-react";
+import {
+    Mic,
+    RefreshCw,
+    Scissors,
+    Settings,
+    Trash2,
+    Upload,
+    VolumeX,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -17,6 +25,7 @@ import {
 } from "@/lib/notifications/browser";
 import { getSyncSettings, SYNC_CONFIG } from "@/lib/sync-config";
 import type { Recording } from "@/types/recording";
+import type { DiarizedSegment } from "@/types/transcription";
 import { RecordingList } from "./recording-list";
 import { RecordingPlayer } from "./recording-player";
 import { TranscriptionPanel } from "./transcription-panel";
@@ -24,6 +33,7 @@ import { TranscriptionPanel } from "./transcription-panel";
 interface TranscriptionData {
     text?: string;
     language?: string;
+    speakersJson?: DiarizedSegment[];
 }
 
 interface WorkstationProps {
@@ -34,10 +44,20 @@ interface WorkstationProps {
 export function Workstation({ recordings, transcriptions }: WorkstationProps) {
     const router = useRouter();
     const [currentRecording, setCurrentRecording] = useState<Recording | null>(
-        recordings.length > 0 ? recordings[0] : null,
+        () => {
+            const savedId =
+                typeof window !== "undefined"
+                    ? sessionStorage.getItem("dashboard-selected-id")
+                    : null;
+            return (
+                (savedId ? recordings.find((r) => r.id === savedId) : null) ??
+                (recordings.length > 0 ? recordings[0] : null)
+            );
+        },
     );
     const [isTranscribing, setIsTranscribing] = useState(false);
-    const [isDeletingTranscription, setIsDeletingTranscription] = useState(false);
+    const [isDeletingTranscription, setIsDeletingTranscription] =
+        useState(false);
     const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
     const [isSplitting, setIsSplitting] = useState(false);
     const [splitConflict, setSplitConflict] = useState<number | null>(null);
@@ -48,7 +68,28 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
     const [isSavingTitle, setIsSavingTitle] = useState(false);
     const [isSyncingToPlaud, setIsSyncingToPlaud] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
+    const [streamingText, setStreamingText] = useState("");
+    const [statusMessage, setStatusMessage] = useState("");
+    // null = optimistic delete (hide server text until router.refresh)
+    // undefined = no local override
+    const [localTranscription, setLocalTranscription] = useState<
+        string | null | undefined
+    >(undefined);
+    const [localSpeakersJson, setLocalSpeakersJson] = useState<
+        DiarizedSegment[] | undefined
+    >(undefined);
+    const [transcriptionProvider, setTranscriptionProvider] = useState<
+        string | null
+    >(null);
+    const streamingAccumulatorRef = useRef("");
     const uploadInputRef = useRef<HTMLInputElement>(null);
+    const transcribeAbortRef = useRef<AbortController | null>(null);
+    // Polling interval used when the SSE stream closes before the done event
+    // (e.g. proxy timeout). We keep isTranscribing=true and poll
+    // router.refresh() until the transcription appears in the page props.
+    const transcribePollRef = useRef<ReturnType<typeof setInterval> | null>(
+        null,
+    );
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [onboardingOpen, setOnboardingOpen] = useState(false);
     const [providers, setProviders] = useState<
@@ -89,17 +130,55 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
         });
     }, [recordings]);
 
-    // Reset title-editing state whenever the selected recording changes so a
-    // stale editing UI is never shown after switching recordings.
+    // Reset per-recording state whenever the selected recording changes.
+    // Without this, localTranscription from the previous recording stays
+    // visible when switching to a recording that has no transcription yet,
+    // and title-editing UI from the old recording would bleed through.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — only runs on id change
     useEffect(() => {
         setIsEditingTitle(false);
         setEditTitleValue("");
         setSplitConflict(null);
+        setLocalTranscription(undefined);
+        setLocalSpeakersJson(undefined);
+        setStreamingText("");
+        setStatusMessage("");
+        streamingAccumulatorRef.current = "";
     }, [currentRecording?.id]);
 
     useEffect(() => {
         getSyncSettings().then(setSyncSettings);
     }, []);
+
+    // Abort any in-progress transcription stream when the component unmounts
+    useEffect(() => {
+        return () => {
+            transcribeAbortRef.current?.abort();
+            if (transcribePollRef.current)
+                clearInterval(transcribePollRef.current);
+        };
+    }, []);
+
+    // When the transcription prop arrives from the server (via router.refresh),
+    // stop polling and clear the transcribing state. Also clear the local
+    // speaker data since the server version is now authoritative.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: localTranscription is only read for null-sentinel check, not as a trigger
+    useEffect(() => {
+        if (currentTranscription?.text && transcribePollRef.current) {
+            clearInterval(transcribePollRef.current);
+            transcribePollRef.current = null;
+            setIsTranscribing(false);
+            setStreamingText("");
+        }
+        if (currentTranscription?.text) {
+            setLocalSpeakersJson(undefined);
+            setLocalTranscription(undefined);
+        }
+        // Server confirms deletion — clear the optimistic null sentinel
+        if (!currentTranscription?.text && localTranscription === null) {
+            setLocalTranscription(undefined);
+        }
+    }, [currentTranscription?.text]);
 
     useEffect(() => {
         const fetchNotificationPrefs = async () => {
@@ -119,11 +198,27 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
         fetchNotificationPrefs();
     }, []);
 
+    const fetchDefaultTranscriptionProvider = useCallback(() => {
+        fetch("/api/settings/ai/providers")
+            .then((r) => r.json())
+            .then((data) => {
+                const defaultProvider = (
+                    data.providers as Array<{
+                        provider: string;
+                        isDefaultTranscription: boolean;
+                    }>
+                )?.find((p) => p.isDefaultTranscription);
+                setTranscriptionProvider(defaultProvider?.provider ?? null);
+            })
+            .catch(() => {});
+    }, []);
+
     useEffect(() => {
         if (!settingsOpen) {
             getSyncSettings().then(setSyncSettings);
+            fetchDefaultTranscriptionProvider();
         }
-    }, [settingsOpen]);
+    }, [settingsOpen, fetchDefaultTranscriptionProvider]);
 
     const {
         isAutoSyncing,
@@ -181,31 +276,192 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
         }
     }, [settingsOpen]);
 
-    const handleTranscribe = useCallback(async () => {
-        if (!currentRecording) return;
+    const runTranscription = useCallback(
+        async (diarize: boolean) => {
+            if (!currentRecording) return;
 
-        setIsTranscribing(true);
-        try {
-            const response = await fetch(
-                `/api/recordings/${currentRecording.id}/transcribe`,
-                {
-                    method: "POST",
-                },
-            );
+            const controller = new AbortController();
+            transcribeAbortRef.current = controller;
+            setIsTranscribing(true);
+            setLocalTranscription(undefined);
+            setLocalSpeakersJson(undefined);
+            streamingAccumulatorRef.current = "";
+            // Flag: when true the finally block leaves isTranscribing alone so
+            // the polling useEffect can clear it once the result arrives.
+            let keepTranscribing = false;
 
-            if (response.ok) {
-                toast.success("Transcription complete");
+            const startPollingFallback = () => {
+                if (transcribePollRef.current)
+                    clearInterval(transcribePollRef.current);
+                keepTranscribing = true;
                 router.refresh();
-            } else {
-                const error = await response.json();
-                toast.error(error.error || "Transcription failed");
+                transcribePollRef.current = setInterval(() => {
+                    router.refresh();
+                }, 10_000);
+            };
+
+            try {
+                const url = diarize
+                    ? `/api/recordings/${currentRecording.id}/transcribe?diarize=true`
+                    : `/api/recordings/${currentRecording.id}/transcribe`;
+                const response = await fetch(url, {
+                    method: "POST",
+                    signal: controller.signal,
+                });
+
+                const contentType = response.headers.get("content-type");
+                if (contentType?.includes("text/event-stream")) {
+                    // Speaches streaming / diarization SSE path
+                    const reader = response.body?.getReader();
+                    if (!reader)
+                        throw new Error("Response body is not readable");
+                    const decoder = new TextDecoder();
+                    let buffer = "";
+                    let receivedDone = false;
+                    let receivedServerError = false;
+                    try {
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) {
+                                // Flush remaining TextDecoder bytes and process any trailing SSE block.
+                                buffer += decoder.decode();
+                            } else {
+                                buffer += decoder.decode(value, {
+                                    stream: true,
+                                });
+                            }
+                            const blocks = buffer.split(/\r?\n\r?\n/);
+                            buffer = blocks.pop() ?? "";
+
+                            for (const block of blocks) {
+                                const jsonStr = block
+                                    .split(/\r?\n/)
+                                    .filter((l) => l.startsWith("data:"))
+                                    .map((l) => l.slice(5).trim())
+                                    .join("\n");
+                                if (!jsonStr) continue;
+
+                                let event: {
+                                    type: string;
+                                    text?: string;
+                                    transcription?: string;
+                                    speakersJson?: DiarizedSegment[];
+                                    message?: string;
+                                };
+                                try {
+                                    event = JSON.parse(jsonStr);
+                                } catch {
+                                    continue;
+                                }
+
+                                if (event.type === "chunk" && event.text) {
+                                    setStatusMessage("");
+                                    streamingAccumulatorRef.current +=
+                                        event.text;
+                                    setStreamingText(
+                                        (prev) => prev + event.text,
+                                    );
+                                } else if (event.type === "status") {
+                                    setStatusMessage(event.message ?? "");
+                                } else if (event.type === "done") {
+                                    receivedDone = true;
+                                    setStatusMessage("");
+                                    const finalText =
+                                        event.transcription ||
+                                        streamingAccumulatorRef.current;
+                                    if (finalText) {
+                                        setLocalTranscription(finalText);
+                                    }
+                                    if (
+                                        diarize &&
+                                        event.speakersJson &&
+                                        event.speakersJson.length > 0
+                                    ) {
+                                        setLocalSpeakersJson(
+                                            event.speakersJson,
+                                        );
+                                    }
+                                    streamingAccumulatorRef.current = "";
+                                    toast.success("Transcription complete");
+                                    router.refresh();
+                                    return;
+                                } else if (event.type === "error") {
+                                    receivedServerError = true;
+                                    throw new Error(
+                                        event.message ?? "Transcription failed",
+                                    );
+                                }
+                                // "ping" events (heartbeat) are ignored
+                            }
+
+                            if (done) break;
+                        }
+                    } catch (streamErr) {
+                        if (
+                            streamErr instanceof Error &&
+                            streamErr.name === "AbortError"
+                        ) {
+                            throw streamErr;
+                        }
+                        if (receivedServerError) {
+                            throw streamErr;
+                        }
+                        // Network/connection drop — server still processing.
+                        startPollingFallback();
+                        return;
+                    }
+
+                    if (!receivedDone) {
+                        // Stream closed without done event — start polling.
+                        startPollingFallback();
+                    }
+                } else if (response.ok) {
+                    toast.success("Transcription complete");
+                    router.refresh();
+                } else {
+                    let errorData: { error?: string } | null = null;
+                    try {
+                        errorData = await response.json();
+                    } catch {
+                        /* non-JSON body — proxy error, fall through to polling */
+                    }
+                    if (errorData) {
+                        toast.error(errorData.error || "Transcription failed");
+                    } else {
+                        startPollingFallback();
+                    }
+                }
+            } catch (err) {
+                if (err instanceof Error && err.name === "AbortError") return;
+                if (err instanceof TypeError) {
+                    startPollingFallback();
+                    return;
+                }
+                toast.error(
+                    err instanceof Error
+                        ? err.message
+                        : "Failed to transcribe recording",
+                );
+            } finally {
+                if (!keepTranscribing) {
+                    setIsTranscribing(false);
+                    setStreamingText("");
+                    setStatusMessage("");
+                }
             }
-        } catch {
-            toast.error("Failed to transcribe recording");
-        } finally {
-            setIsTranscribing(false);
-        }
-    }, [currentRecording, router]);
+        },
+        [currentRecording, router],
+    );
+
+    const handleTranscribe = useCallback(
+        () => runTranscription(false),
+        [runTranscription],
+    );
+
+    const handleTranscribeDiarized = useCallback(
+        () => runTranscription(true),
+        [runTranscription],
+    );
 
     const handleDeleteTranscription = useCallback(async () => {
         if (!currentRecording) return;
@@ -218,6 +474,10 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
             );
 
             if (response.ok) {
+                // Use null sentinel to immediately hide server text
+                // without waiting for router.refresh() to deliver the update.
+                setLocalTranscription(null);
+                setLocalSpeakersJson(undefined);
                 toast.success("Transcription removed");
                 router.refresh();
             } else {
@@ -266,11 +526,14 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
 
         setIsSavingTitle(true);
         try {
-            const response = await fetch(`/api/recordings/${currentRecording.id}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ filename: trimmed }),
-            });
+            const response = await fetch(
+                `/api/recordings/${currentRecording.id}`,
+                {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ filename: trimmed }),
+                },
+            );
 
             if (response.ok) {
                 setIsEditingTitle(false);
@@ -382,7 +645,12 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
 
     // True whenever any mutating operation is in flight — used to disable all
     // action buttons and prevent concurrent conflicting requests.
-    const isProcessing = isSplitting || isDeleting || isRemovingSilence || isTranscribing || isDeletingTranscription;
+    const isProcessing =
+        isSplitting ||
+        isDeleting ||
+        isRemovingSilence ||
+        isTranscribing ||
+        isDeletingTranscription;
 
     const handleDelete = useCallback(async () => {
         if (!currentRecording) return;
@@ -538,8 +806,32 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                     recordings={recordings}
                                     currentRecording={currentRecording}
                                     onSelect={(r) => {
+                                        // Abort any in-flight transcription
+                                        // stream before switching recordings
+                                        // to prevent results leaking into the
+                                        // new selection.
+                                        if (isTranscribing) {
+                                            transcribeAbortRef.current?.abort();
+                                            transcribeAbortRef.current = null;
+                                            if (transcribePollRef.current) {
+                                                clearInterval(
+                                                    transcribePollRef.current,
+                                                );
+                                                transcribePollRef.current =
+                                                    null;
+                                            }
+                                            setIsTranscribing(false);
+                                            setStreamingText("");
+                                            setStatusMessage("");
+                                            streamingAccumulatorRef.current =
+                                                "";
+                                        }
                                         setSplitConflict(null);
                                         setCurrentRecording(r);
+                                        sessionStorage.setItem(
+                                            "dashboard-selected-id",
+                                            r.id,
+                                        );
                                     }}
                                 />
                             </div>
@@ -584,7 +876,9 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                             )}
                                             <div className="flex justify-end gap-2 flex-wrap">
                                                 <Button
-                                                    onClick={handleRemoveSilence}
+                                                    onClick={
+                                                        handleRemoveSilence
+                                                    }
                                                     variant="outline"
                                                     size="sm"
                                                     disabled={isProcessing}
@@ -602,7 +896,11 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                                         onClick={handleSplit}
                                                         variant="outline"
                                                         size="sm"
-                                                        disabled={isProcessing || splitConflict !== null}
+                                                        disabled={
+                                                            isProcessing ||
+                                                            splitConflict !==
+                                                                null
+                                                        }
                                                     >
                                                         <Scissors className="w-4 h-4 mr-2" />
                                                         {isSplitting
@@ -644,7 +942,9 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                             }}
                                             isEditingTitle={isEditingTitle}
                                             editTitleValue={editTitleValue}
-                                            onEditTitleChange={setEditTitleValue}
+                                            onEditTitleChange={
+                                                setEditTitleValue
+                                            }
                                             onSaveTitle={handleSaveTitle}
                                             onCancelEdit={() =>
                                                 setIsEditingTitle(false)
@@ -674,13 +974,46 @@ export function Workstation({ recordings, transcriptions }: WorkstationProps) {
                                         />
                                         <TranscriptionPanel
                                             recording={currentRecording}
-                                            transcription={currentTranscription}
+                                            transcription={
+                                                // null = optimistic delete; hide
+                                                // server text until refresh
+                                                localTranscription === null
+                                                    ? undefined
+                                                    : localTranscription
+                                                      ? {
+                                                            text: localTranscription,
+                                                        }
+                                                      : currentTranscription?.text
+                                                        ? currentTranscription
+                                                        : undefined
+                                            }
                                             isTranscribing={isTranscribing}
                                             onTranscribe={handleTranscribe}
-                                            isDeletingTranscription={isDeletingTranscription}
-                                            onDeleteTranscription={handleDeleteTranscription}
-                                            isGeneratingTitle={isGeneratingTitle}
-                                            onGenerateTitle={handleGenerateTitle}
+                                            isDeletingTranscription={
+                                                isDeletingTranscription
+                                            }
+                                            onDeleteTranscription={
+                                                handleDeleteTranscription
+                                            }
+                                            isGeneratingTitle={
+                                                isGeneratingTitle
+                                            }
+                                            onGenerateTitle={
+                                                handleGenerateTitle
+                                            }
+                                            streamingText={streamingText}
+                                            statusMessage={statusMessage}
+                                            supportsDiarization={
+                                                transcriptionProvider ===
+                                                "Speaches"
+                                            }
+                                            onTranscribeDiarized={
+                                                handleTranscribeDiarized
+                                            }
+                                            speakersJson={
+                                                currentTranscription?.speakersJson ??
+                                                localSpeakersJson
+                                            }
                                         />
                                     </>
                                 ) : (
